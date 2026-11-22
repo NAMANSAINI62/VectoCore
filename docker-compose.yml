@@ -1,0 +1,94 @@
+name: semantic-caching-project
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: sc_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    networks:
+      - app_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: sc_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sc_backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - PORT=9417
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+    ports:
+      - "9417:9417"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9417/api/v1/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sc_frontend
+    restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:9417
+      - BACKEND_INTERNAL_URL=http://backend:9417
+    ports:
+      - "4317:4317"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - app_network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  app_network:
+    driver: bridge

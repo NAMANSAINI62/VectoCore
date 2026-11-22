@@ -1,0 +1,74 @@
+'use client';
+
+import { createContext, useContext, useEffect, useState } from 'react';
+
+export type AppTheme = 'mint' | 'mocha';
+
+export type ThemeOption = {
+  id: AppTheme;
+  label: string;
+  swatch: string;
+  secondarySwatch: string;
+  accentSwatch: string;
+};
+
+export const THEME_OPTIONS: ThemeOption[] = [
+  { id: 'mint', label: 'Sage Paper', swatch: '#9CAF88', secondarySwatch: '#F7F5EF', accentSwatch: '#E8412C' },
+  { id: 'mocha', label: 'Mocha Cream', swatch: '#F2E8DA', secondarySwatch: '#3B2418', accentSwatch: '#8EC5FF' },
+];
+
+const STORAGE_KEY = 'vector_cache_theme';
+
+type ThemeContextValue = {
+  theme: AppTheme;
+  setTheme: (next: AppTheme) => void;
+};
+
+const ThemeContext = createContext<ThemeContextValue>({
+  theme: 'mint',
+  setTheme: () => {},
+});
+
+function applyThemeToDom(theme: AppTheme) {
+  const root = document.documentElement;
+  root.setAttribute('data-theme', theme);
+  root.classList.remove('dark');
+}
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setThemeState] = useState<AppTheme>('mint');
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(STORAGE_KEY) as AppTheme | null;
+      if (saved && THEME_OPTIONS.some((item) => item.id === saved)) {
+        setThemeState(saved);
+        applyThemeToDom(saved);
+        return;
+      }
+    } catch {
+      // Ignore storage access errors
+    }
+    applyThemeToDom('mint');
+  }, []);
+
+  const setTheme = (next: AppTheme) => {
+    setThemeState(next);
+    applyThemeToDom(next);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // Ignore storage access errors
+    }
+  };
+
+  return (
+    <ThemeContext.Provider value={{ theme, setTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
+export function useTheme() {
+  return useContext(ThemeContext);
+}

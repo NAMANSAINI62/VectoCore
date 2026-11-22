@@ -1,0 +1,236 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 60-30-10 Theme Tokens:
+   60% Primary Canvas (--background)
+   30% Secondary Surfaces / Cards / Sidebars (--card, --muted, --border)
+   10% Accent / Active / Interactive (--accent, --accent-soft)
+   Plus lightweight --hero-* and unified --stat-number per theme */
+
+/* Sage Paper (Default): Sage #9CAF88 + Off-White #F7F5EF + Tomato Red #E8412C */
+:root,
+[data-theme='mint'] {
+  --background: #eef3ea;
+  --foreground: #1f2e1d;
+  --card: #F7F5EF;
+  --card-foreground: #1f2e1d;
+  --muted: #dfe8d8;
+  --muted-foreground: #4d6248;
+  --border: #c5d4bb;
+  --accent: #E8412C;
+  --accent-soft: #fce8e5;
+  --accent-foreground: #ffffff;
+  --hero-bg: linear-gradient(135deg, #dce5d4 0%, #eef3ea 55%, #e4ecdd 100%);
+  --hero-border: #b8caac;
+  --hero-text: #1f2e1d;
+  --hero-subtext: #465c42;
+  --hero-pill-bg: #F7F5EF;
+  --hero-pill-text: #3f5b38;
+  --hero-btn-primary-bg: #E8412C;
+  --hero-btn-primary-text: #ffffff;
+  --hero-btn-secondary-bg: #F7F5EF;
+  --hero-btn-secondary-text: #2c3e29;
+  --stat-number: #2c4427;
+  --hit-bg: #d4e8d1;
+  --hit-text: #1f5425;
+  --miss-bg: #fbe3df;
+  --miss-text: #b82c1a;
+  --code-bg: #e6ece0;
+  --code-text: #1f2e1d;
+  --chart-exact: #789B83;
+  --chart-semantic: #D69A62;
+  --chart-miss: #C97970;
+  --chart-input: #829BB5;
+  --chart-output: #A18AB8;
+  --chart-savings: #557D65;
+  --chart-neutral: #929292;
+  --chart-grid: rgba(77, 98, 72, 0.16);
+  --chart-axis: #5a6d56;
+  --dock-bg: rgba(247, 245, 239, 0.92);
+  --dock-shadow: 0 10px 28px -8px rgba(31, 46, 29, 0.16), 0 2px 6px rgba(31, 46, 29, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  --scrollbar-thumb: rgba(110, 133, 92, 0.36);
+  --scrollbar-thumb-hover: rgba(110, 133, 92, 0.6);
+}
+
+/* Mocha Cream: Brown #3B2418 + Cream #F2E8DA + Baby Blue #8EC5FF */
+[data-theme='mocha'] {
+  --background: #F2E8DA;
+  --foreground: #3B2418;
+  --card: #FAF6EF;
+  --card-foreground: #3B2418;
+  --muted: #e8dbc8;
+  --muted-foreground: #6e5242;
+  --border: #dccbb4;
+  --accent: #2c74b3;
+  --accent-soft: #e0effe;
+  --accent-foreground: #ffffff;
+  --hero-bg: linear-gradient(135deg, #ebe0cf 0%, #FAF6EF 55%, #e6f0fb 100%);
+  --hero-border: #d5c2a8;
+  --hero-text: #3B2418;
+  --hero-subtext: #63493a;
+  --hero-pill-bg: #ffffff;
+  --hero-pill-text: #2c74b3;
+  --hero-btn-primary-bg: #3B2418;
+  --hero-btn-primary-text: #F2E8DA;
+  --hero-btn-secondary-bg: #8EC5FF;
+  --hero-btn-secondary-text: #3B2418;
+  --stat-number: #3B2418;
+  --hit-bg: #d8ecfe;
+  --hit-text: #16528a;
+  --miss-bg: #ead9c5;
+  --miss-text: #5a3826;
+  --code-bg: #ede1cf;
+  --code-text: #3B2418;
+  --chart-exact: #6F9A7E;
+  --chart-semantic: #D49257;
+  --chart-miss: #C26B61;
+  --chart-input: #6D8FB5;
+  --chart-output: #977EB2;
+  --chart-savings: #4C7860;
+  --chart-neutral: #8B7B70;
+  --chart-grid: rgba(110, 82, 66, 0.16);
+  --chart-axis: #6e5242;
+  --dock-bg: rgba(250, 246, 239, 0.93);
+  --dock-shadow: 0 10px 28px -8px rgba(59, 36, 24, 0.2), 0 2px 6px rgba(59, 36, 24, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --scrollbar-thumb: rgba(59, 36, 24, 0.28);
+  --scrollbar-thumb-hover: rgba(59, 36, 24, 0.5);
+}
+
+body {
+  color: var(--foreground);
+  background-color: var(--background);
+  font-family: "Instrument Sans Variable", "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+@keyframes sidebar-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes sidebar-item-in {
+  from {
+    opacity: 0;
+    transform: translateX(-7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes sidebar-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes sidebar-drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes sidebar-backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes sidebar-drawer-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+.sidebar-panel-enter {
+  animation: sidebar-panel-in 260ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.sidebar-nav-item {
+  animation: sidebar-item-in 260ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.sidebar-nav-item::before {
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  left: 0;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: var(--accent);
+  content: '';
+  opacity: 0;
+  transform: scaleY(0.45);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.sidebar-nav-active::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.sidebar-backdrop-enter {
+  animation: sidebar-backdrop-in 180ms ease-out both;
+}
+
+.sidebar-drawer-enter {
+  animation: sidebar-drawer-in 220ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.sidebar-backdrop-exit {
+  animation: sidebar-backdrop-out 180ms ease-in both;
+}
+
+.sidebar-drawer-exit {
+  animation: sidebar-drawer-out 180ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-panel-enter,
+  .sidebar-nav-item,
+  .sidebar-backdrop-enter,
+  .sidebar-drawer-enter,
+  .sidebar-backdrop-exit,
+  .sidebar-drawer-exit {
+    animation: none;
+  }
+
+  .sidebar-nav-item,
+  .sidebar-nav-item::before,
+  .sidebar-nav-item svg,
+  .sidebar-backdrop-enter,
+  .sidebar-drawer-enter,
+  .sidebar-backdrop-exit,
+  .sidebar-drawer-exit {
+    transition: none;
+  }
+}

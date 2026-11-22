@@ -1,0 +1,12 @@
+{
+  "SessionStart": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"C:/Program Files/nodejs/node.exe\" \"D:/Caching_Project/.codex/hooks/gsd-check-update.js\""
+        }
+      ]
+    }
+  ]
+}
