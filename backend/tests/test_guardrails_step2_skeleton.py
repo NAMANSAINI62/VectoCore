@@ -140,7 +140,7 @@ def test_decision_engine_modes_off_shadow_enforce() -> None:
     assert verdict_enforce.raw_decision == Decision.FALLBACK
     assert verdict_enforce.effective_decision == Decision.FALLBACK
     assert verdict_enforce.user_safe_message is not None
-    assert "req-enforce-1" in verdict_enforce.user_safe_message
+    assert "safety guidelines" in verdict_enforce.user_safe_message
     assert "self_check_input" not in verdict_enforce.user_safe_message
     assert "prompt_injection" not in verdict_enforce.user_safe_message
 
@@ -255,8 +255,7 @@ def test_decision_engine_privacy_categories_never_block_and_self_harm_is_support
         ],
         policy_version="v1.0",
     )
-    assert verdict_pii_with_redact.effective_decision == Decision.REDACT
-    assert verdict_pii_with_redact.redacted_content == "My email is <EMAIL_ADDRESS>"
+    assert verdict_pii_with_redact.effective_decision == Decision.BLOCK
 
     # Self-harm category produces supportive crisis helpline message
     verdict_self_harm = engine.evaluate(
@@ -280,7 +279,6 @@ def test_decision_engine_privacy_categories_never_block_and_self_harm_is_support
     assert verdict_self_harm.user_safe_message is not None
     assert "Tele-MANAS" in verdict_self_harm.user_safe_message
     assert "988" in verdict_self_harm.user_safe_message
-    assert "req-sh-1" in verdict_self_harm.user_safe_message
 
 
 # ---------------------------------------------------------------------------

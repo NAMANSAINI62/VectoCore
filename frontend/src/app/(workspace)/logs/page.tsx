@@ -40,7 +40,7 @@ type StatusFilter = (typeof STATUS_FILTERS)[number]['id'];
 
 export default function LogsPage() {
   const { data: stats, isLoading, isError, isFetching, refetch } = useGetCacheStatsQuery(
-    { activity_limit: 50 },
+    { activity_limit: 500 },
     { pollingInterval: 5000, refetchOnMountOrArgChange: true }
   );
   const [refreshSpin, setRefreshSpin] = useState(false);
@@ -353,11 +353,20 @@ export default function LogsPage() {
                           {getBadgeLabel(item.cache_status)}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 max-w-[260px]">
+                      <td className="px-3 py-2.5 max-w-[260px] relative group">
                         <div
                           className="truncate font-medium"
                           style={{ color: 'var(--foreground)' }}
-                          title={item.query_preview}
+                        >
+                          {item.query_preview}
+                        </div>
+                        <div
+                          className="pointer-events-none hidden group-hover:block absolute left-3 top-full z-30 mt-1 w-80 rounded-xl border p-3 text-xs shadow-lg whitespace-normal break-words"
+                          style={{
+                            backgroundColor: 'var(--card)',
+                            borderColor: 'var(--border)',
+                            color: 'var(--foreground)',
+                          }}
                         >
                           {item.query_preview}
                         </div>

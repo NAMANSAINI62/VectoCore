@@ -290,9 +290,9 @@ class SecretScannerDetector:
             dt_ms = round((time.perf_counter() - t0) * 1000.0, 2)
             if categories:
                 decision = (
-                    Decision.REDACT
-                    if layer == "pii"
-                    else (Decision.FALLBACK if layer == "input" else Decision.BLOCK)
+                    Decision.FALLBACK
+                    if layer in ("input", "pii")
+                    else Decision.BLOCK
                 )
                 redacted_val = self.redact_secrets(text)
                 return LayerResult(

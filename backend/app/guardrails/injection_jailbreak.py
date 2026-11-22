@@ -172,6 +172,9 @@ class InjectionJailbreakDetector:
         """Run NeMo `self check input` on `text` under timeout and circuit breaker."""
         effective_mode = mode or LayerMode(self.settings.get_layer_mode("input"))
         t0 = time.perf_counter()
+        if layer == "input" and text:
+            import re as _re
+            text = _re.sub(r"https?://\S+", "<URL>", text)
 
         if require_available and not self.available:
             dt_ms = round((time.perf_counter() - t0) * 1000.0, 2)
@@ -206,8 +209,11 @@ class InjectionJailbreakDetector:
             )
 
         try:
+            import re as _re
+
+            check_text = _re.sub(r"https?://\S+", "[URL]", text) if layer == "input" else text
             result = await self._invoke_under_breaker(
-                text, self.settings.GUARDRAILS_SELF_CHECK_TIMEOUT_SEC
+                check_text, self.settings.GUARDRAILS_SELF_CHECK_TIMEOUT_SEC
             )
             dt_ms = round((time.perf_counter() - t0) * 1000.0, 2)
             status_val = result.status.value if isinstance(result.status, RailStatus) else str(result.status)

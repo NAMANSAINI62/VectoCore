@@ -362,11 +362,20 @@ export default function CachePage() {
                       onClick={() => setSelectedEntry(entry)}
                       className="cursor-pointer transition-colors hover:bg-[var(--muted)]/45"
                     >
-                      <td className="px-4 py-3 max-w-md">
+                      <td className="px-4 py-3 max-w-md relative group">
                         <div
                           className="font-medium truncate"
                           style={{ color: 'var(--foreground)' }}
-                          title={entry.query}
+                        >
+                          {entry.query}
+                        </div>
+                        <div
+                          className="pointer-events-none hidden group-hover:block absolute left-4 top-full z-30 mt-1 w-96 rounded-xl border p-3 text-xs shadow-lg whitespace-normal break-words"
+                          style={{
+                            backgroundColor: 'var(--card)',
+                            borderColor: 'var(--border)',
+                            color: 'var(--foreground)',
+                          }}
                         >
                           {entry.query}
                         </div>

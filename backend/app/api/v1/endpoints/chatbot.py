@@ -7,7 +7,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from app.chatbot.graph import chat_graph
 from app.config.settings import get_settings
 from app.database.session import async_session_factory, get_db_session
 from app.dependencies.auth import get_current_user
+from app.guardrails.rate_limiter import RedisRateLimiter
 from app.guardrails.schemas import Decision
 from app.guardrails.service import get_guardrails_service
 from app.llm.registry import available_models, provider_options, validate_provider_model
@@ -210,10 +211,26 @@ async def transcribe_chat_audio(
 @router.post("/live/session", response_model=LiveConnectResponse)
 async def gemini_live_session(
     payload: LiveConnectRequest,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
 ) -> LiveConnectResponse:
-    text, thoughts, used_model = await run_live_gemini_session(
+    verdict = await get_guardrails_service().check_input(
         payload.prompt,
+        user_id=user.id,
+        db=db,
+    )
+    await db.commit()
+    if verdict.effective_decision in (Decision.BLOCK, Decision.FALLBACK, Decision.REQUIRE_REVIEW):
+        return LiveConnectResponse(
+            text=verdict.user_safe_message or "I cannot fulfill this request due to safety guidelines.",
+            thoughts=None,
+            model=payload.model,
+            mode=payload.mode,
+            target_language=payload.target_language,
+        )
+    effective_prompt = verdict.redacted_content or payload.prompt
+    text, thoughts, used_model = await run_live_gemini_session(
+        effective_prompt,
         mode=payload.mode,
         target_language=payload.target_language,
         model=payload.model,
@@ -318,10 +335,14 @@ async def delete_conversation(
 @router.post("/chat/completions")
 async def chat_completion(
     payload: ChatCompletionRequest,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> StreamingResponse:
     validate_provider_model(payload.provider, payload.model)
+    client_ip = request.client.host if (request is not None and request.client is not None) else "unknown"
+    rate_limiter = RedisRateLimiter()
+    await rate_limiter.check_and_acquire_stream(user.id, client_ip)
     existing_conversation: ChatConversation | None = None
     if payload.conversation_id:
         existing_conversation = await _owned_conversation(db, user, payload.conversation_id)
@@ -339,8 +360,9 @@ async def chat_completion(
         )
         blocked_conv_id = existing_conversation.id if existing_conversation is not None else None
         blocked_latency_ms = max(1, int(round(verdict.latency_ms)))
+        blocked_query = verdict.redacted_content or payload.message
         await SemanticCacheEngine(db, user.id).record_telemetry(
-            query=f"[BLOCKED:{reason_cat}]",
+            query=blocked_query[:250],
             cache_status="blocked",
             provider=payload.provider,
             model=payload.model,
@@ -350,39 +372,42 @@ async def chat_completion(
             total_latency_ms=blocked_latency_ms,
             conversation_id=blocked_conv_id,
             response_preview=safe_message,
-            current_query=f"[BLOCKED:{reason_cat}]",
+            current_query=blocked_query,
         )
         await db.close()
 
         async def blocked_event_stream() -> AsyncIterator[str]:
-            conv_val = str(blocked_conv_id) if blocked_conv_id is not None else None
-            yield _sse(
-                "response.start",
-                {
-                    "conversation_id": conv_val,
-                    "provider": payload.provider,
-                    "model": payload.model,
-                },
-            )
-            yield _sse("content.delta", {"content": safe_message})
-            yield _sse(
-                "response.complete",
-                {
-                    "conversation_id": conv_val,
-                    "message_id": "",
-                    "provider": payload.provider,
-                    "model": payload.model,
-                    "switched_from": None,
-                    "switch_reason": None,
-                    "latency_ms": blocked_latency_ms,
-                    "is_cached": False,
-                    "effective_response_language": "English",
-                    "input_language": "English",
-                    "language_policy": "default",
-                    "blocked": True,
-                    "reason_category": reason_cat,
-                },
-            )
+            try:
+                conv_val = str(blocked_conv_id) if blocked_conv_id is not None else None
+                yield _sse(
+                    "response.start",
+                    {
+                        "conversation_id": conv_val,
+                        "provider": payload.provider,
+                        "model": payload.model,
+                    },
+                )
+                yield _sse("content.delta", {"content": safe_message})
+                yield _sse(
+                    "response.complete",
+                    {
+                        "conversation_id": conv_val,
+                        "message_id": "",
+                        "provider": payload.provider,
+                        "model": payload.model,
+                        "switched_from": None,
+                        "switch_reason": None,
+                        "latency_ms": blocked_latency_ms,
+                        "is_cached": False,
+                        "effective_response_language": "English",
+                        "input_language": "English",
+                        "language_policy": "default",
+                        "blocked": True,
+                        "reason_category": reason_cat,
+                    },
+                )
+            finally:
+                await rate_limiter.release_stream(user.id)
 
         return StreamingResponse(
             blocked_event_stream(),
@@ -502,6 +527,8 @@ async def chat_completion(
                 error_message=detail,
             )
             yield _sse("response.error", {"status": error_status, "detail": detail})
+        finally:
+            await rate_limiter.release_stream(user_id)
 
     return StreamingResponse(
         event_stream(),

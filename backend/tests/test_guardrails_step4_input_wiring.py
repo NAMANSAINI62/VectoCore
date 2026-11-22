@@ -8,6 +8,7 @@ import asyncio
 import io
 import json
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -216,6 +217,7 @@ def test_benign_english_hindi_hinglish_pass_through_chat_completions(monkeypatch
                         provider="groq",
                         model="openai/gpt-oss-20b",
                     ),
+                    request=SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")),
                     user=db_user,
                     db=req_session,
                 )
@@ -304,6 +306,7 @@ def test_attack_blocked_in_enforce_mode_creates_no_conversation_message_or_cache
                         provider="groq",
                         model="openai/gpt-oss-20b",
                     ),
+                    request=SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")),
                     user=db_user,
                     db=req_session,
                 )
@@ -383,6 +386,7 @@ def test_attack_in_shadow_mode_is_logged_but_allowed_through(monkeypatch: pytest
                     provider="groq",
                     model="openai/gpt-oss-20b",
                 ),
+                request=SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")),
                 user=db_user,
                 db=req_session,
             )
@@ -483,6 +487,7 @@ def test_redact_policy_redacts_aadhaar_card_and_keys_before_llm_cache_and_db(
                     provider="groq",
                     model="openai/gpt-oss-20b",
                 ),
+                request=SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")),
                 user=db_user,
                 db=req_session,
             )
@@ -570,6 +575,7 @@ def test_detector_timeout_fails_closed_when_both_input_detectors_timeout(
                     provider="groq",
                     model="openai/gpt-oss-20b",
                 ),
+                request=SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")),
                 user=db_user,
                 db=req_session,
             )

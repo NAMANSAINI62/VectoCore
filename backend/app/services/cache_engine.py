@@ -598,6 +598,7 @@ class SemanticCacheEngine:
                 provider=provider,
                 model=model,
                 config_hash=config_hash,
+                policy_version=get_guardrails_settings().GUARDRAILS_POLICY_VERSION,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 hit_count=0,

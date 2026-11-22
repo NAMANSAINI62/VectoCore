@@ -18,6 +18,7 @@ from app.chatbot.state import ChatState
 from app.config.settings import get_settings
 from app.guardrails.schemas import Decision
 from app.guardrails.service import get_guardrails_service
+from app.guardrails.tools import MAX_TOOL_CALLS_PER_REQUEST, execute_tool, supports_tool_calling
 from app.llm.registry import (
     build_fallback_candidates,
     classify_query_intent_and_complexity,
@@ -396,6 +397,32 @@ async def select_prompt_configuration(_: ChatState) -> dict[str, Any]:
     return {"prompt": prompt_with_canary}
 
 
+async def tools_stage(state: ChatState) -> dict[str, Any]:
+    """Execute allowlisted tool calls before generate_response when requested and supported."""
+    tool_calls = state.get("tool_calls") or []
+    if not tool_calls or not supports_tool_calling(state.get("model", "")):
+        return {}
+    svc = get_guardrails_service()
+    results: list[str] = []
+    for call in tool_calls[:MAX_TOOL_CALLS_PER_REQUEST]:
+        name = str(call.get("name", ""))
+        args = call.get("args") or {}
+        try:
+            out = await execute_tool(
+                name,
+                args,
+                owner_id=state["user_id"],
+                db=state.get("db"),
+                injection_detector=svc.injection_detector,
+            )
+            results.append(f"[{name}]: {out}")
+        except Exception as exc:
+            results.append(f"[{name} denied]: {type(exc).__name__}")
+    history = list(state.get("history", []))
+    history.append(HumanMessage(content="Tool results:\n" + "\n".join(results)))
+    return {"history": history, "skip_cache": True}
+
+
 def _is_failover_error(exc: Exception) -> tuple[bool, bool]:
     """Return (should_failover, is_daily_quota) for transient rate-limit or availability errors."""
     name = type(exc).__name__.lower()
@@ -737,6 +764,7 @@ def build_chat_graph():
     graph.add_node("check_cache", check_cache)
     graph.add_node("prepare_context", prepare_context)
     graph.add_node("select_prompt_configuration", select_prompt_configuration)
+    graph.add_node("tools_stage", tools_stage)
     graph.add_node("generate_response", generate_response)
     graph.add_node("process_response", process_response)
     graph.add_node("persist_response", persist_response)
@@ -752,7 +780,8 @@ def build_chat_graph():
         },
     )
     graph.add_edge("prepare_context", "select_prompt_configuration")
-    graph.add_edge("select_prompt_configuration", "generate_response")
+    graph.add_edge("select_prompt_configuration", "tools_stage")
+    graph.add_edge("tools_stage", "generate_response")
     graph.add_edge("generate_response", "process_response")
     graph.add_edge("process_response", "persist_response")
     graph.add_edge("persist_response", END)

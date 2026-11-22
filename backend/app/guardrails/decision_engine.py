@@ -43,21 +43,20 @@ _DECISION_SEVERITY: dict[Decision, int] = {
 
 
 def build_generic_safe_message(request_id: str) -> str:
-    """Return a safe, generic refusal message containing only the request_id.
-
-    Never exposes stack traces, prompts, thresholds, or detector names.
-    """
-    return f"I cannot fulfill this request due to safety guidelines. (request_id: {request_id})"
+    """Return a safe, generic refusal message without exposing internal IDs or detector details."""
+    _ = request_id
+    return "I cannot fulfill this request due to safety guidelines."
 
 
 def build_supportive_self_harm_message(request_id: str) -> str:
     """Return a supportive crisis-resource message when self-harm is detected."""
+    _ = request_id
     return (
         "If you or someone you know is going through a difficult time or having thoughts of self-harm, "
         "please know that you are not alone and caring support is available right now. "
         "In India, you can call Tele-MANAS at 14416 or 1800-891-4416 (free, 24/7). "
         "In the US and Canada, call or text 988. In the UK, call 111. "
-        f"If you are in immediate danger, please contact your local emergency services. (request_id: {request_id})"
+        "If you are in immediate danger, please contact your local emergency services."
     )
 
 
@@ -192,7 +191,12 @@ class DecisionEngine:
 
             decision = res.decision
             # Enforce policy rule: privacy/PII-only categories from content-safety never BLOCK/FALLBACK
-            if decision in (Decision.BLOCK, Decision.FALLBACK) and is_privacy_only_categories(res.categories):
+            # (Presidio's explicit BLOCK for IN_AADHAAR / IN_PHONE is preserved.)
+            if (
+                res.detector != "presidio_pii"
+                and decision in (Decision.BLOCK, Decision.FALLBACK)
+                and is_privacy_only_categories(res.categories)
+            ):
                 decision = Decision.REDACT if res.redacted_text is not None else Decision.ALLOW
 
             # Enforce policy rule: either input detector firing maps to FALLBACK

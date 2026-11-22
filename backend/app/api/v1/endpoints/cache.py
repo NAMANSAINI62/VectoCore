@@ -418,7 +418,7 @@ async def get_cache_stats(
     days: Optional[int] = Query(default=None, ge=1, le=365),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
-    activity_limit: int = Query(default=10, ge=1, le=100),
+    activity_limit: int = Query(default=10, ge=1, le=1000),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> CacheStatsResponse:

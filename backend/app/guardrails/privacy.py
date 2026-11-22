@@ -247,6 +247,28 @@ class PrivacyDetector:
         effective_mode = mode or LayerMode(self.settings.get_layer_mode("pii"))
         t0 = time.perf_counter()
 
+        fast_categories: list[str] = []
+        if re.search(r"(?:\+91[\s-]?)?[6-9]\d{9}\b", text):
+            fast_categories.append("IN_PHONE")
+        if re.search(r"\b[2-9]\d{3}[\s-]\d{4}[\s-]\d{4}\b", text) or (
+            any(k in text.lower() for k in ("aadhaar", "aadhar", "uidai"))
+            and re.search(r"\b\d{12}\b", text)
+        ):
+            fast_categories.append("IN_AADHAAR")
+        if fast_categories and layer != "output":
+            dt_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+            return LayerResult(
+                layer=layer,
+                detector=self.detector_name,
+                decision=Decision.BLOCK,
+                mode=effective_mode,
+                score_band=ScoreBand.HIGH,
+                categories=fast_categories,
+                latency_ms=dt_ms,
+                redacted_text=None,
+                degraded=False,
+            )
+
         if require_available and not self.available:
             dt_ms = round((time.perf_counter() - t0) * 1000.0, 2)
             fail_decision = (
@@ -271,6 +293,18 @@ class PrivacyDetector:
                 text, self.settings.GUARDRAILS_PII_TIMEOUT_SEC
             )
             dt_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+            if any(c in ("IN_AADHAAR", "IN_PHONE", "PHONE_NUMBER") for c in categories) and layer != "output":
+                return LayerResult(
+                    layer=layer,
+                    detector=self.detector_name,
+                    decision=Decision.BLOCK,
+                    mode=effective_mode,
+                    score_band=ScoreBand.HIGH,
+                    categories=categories,
+                    latency_ms=dt_ms,
+                    redacted_text=redacted_text,
+                    degraded=False,
+                )
             if categories and redacted_text is not None and redacted_text != text:
                 return LayerResult(
                     layer=layer,
@@ -323,8 +357,8 @@ class PrivacyDetector:
             harmful_probe = f"Verify my Aadhaar {valid_aadhaar} and PAN ABCDE1234F."
             benign_probe = "Customer Priya Verma asked how Redis caching works in Mumbai."
 
-            harmful_res = await self.check(harmful_probe, require_available=False)
-            benign_res = await self.check(benign_probe, require_available=False)
+            harmful_res = await self.check(harmful_probe, layer="output", require_available=False)
+            benign_res = await self.check(benign_probe, layer="output", require_available=False)
 
             if (
                 not harmful_res.degraded

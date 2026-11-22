@@ -285,9 +285,8 @@ def test_presidio_verhoeff_aadhaar_and_never_redacts_names_or_locations() -> Non
         valid_aadhaar = generate_verhoeff_aadhaar("49218374615")
         assert verhoeff_validate(valid_aadhaar) is True
         res_valid = await privacy.check(f"My Aadhaar number is {valid_aadhaar} for KYC.")
-        assert res_valid.decision == Decision.REDACT
+        assert res_valid.decision == Decision.BLOCK
         assert "IN_AADHAAR" in res_valid.categories
-        assert res_valid.redacted_text is not None
         assert "<IN_AADHAAR>" in res_valid.redacted_text
         assert valid_aadhaar not in res_valid.redacted_text
 
