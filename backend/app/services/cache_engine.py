@@ -25,20 +25,30 @@ from app.config.settings import get_settings
 from app.guardrails.config.settings import get_guardrails_settings
 from app.models.cache import CacheEntry, CacheSettings, CacheTelemetry
 from app.services.embedding_service import get_embedding_service
-from app.services.intent_validation_service import (
+from app.services.intent_service import (
     canonicalize_hinglish_query_for_search,
     extract_validation_entities,
     validate_candidate_intent,
 )
-from app.services.response_language_resolver import resolve_response_language
+from app.services.language_service import resolve_response_language
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 DEFAULT_SIMILARITY_THRESHOLD = 0.82
 DEFAULT_BORDERLINE_RECALL_FLOOR = 0.58
-DEFAULT_CACHE_TTL_HOURS = 72
+DEFAULT_CACHE_TTL_HOURS = 48
 SYSTEM_PROMPT_VERSION = "v2-global-lang"
+
+
+async def purge_expired_cache_entries(db: AsyncSession) -> int:
+    """Delete expired rows from cache_entries while keeping cache_telemetry, logs, and chat history intact."""
+    from sqlalchemy import delete
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(delete(CacheEntry).where(CacheEntry.expires_at <= now))
+    await db.commit()
+    return int(result.rowcount or 0)
 
 def normalize_query_for_cache(query: str) -> str:
     """Normalize query for deterministic exact cache keys without stripping language context."""
@@ -663,6 +673,9 @@ class SemanticCacheEngine:
         validation_explanation: str | None = None,
         error_type: str | None = None,
         error_message: str | None = None,
+        memory_context_tokens: int = 0,
+        memory_summary_included: bool = False,
+        memory_window_size: int = 0,
     ) -> None:
         """Save real request telemetry."""
         if detected_language is None or requested_language is None:
@@ -711,6 +724,9 @@ class SemanticCacheEngine:
             cache_lookup_latency_ms=lookup_latency_ms,
             llm_latency_ms=llm_latency_ms,
             latency_saved_ms=latency_saved_ms,
+            memory_context_tokens=memory_context_tokens,
+            memory_summary_included=memory_summary_included,
+            memory_window_size=memory_window_size,
         )
         self.db.add(telemetry)
         await self.db.commit()

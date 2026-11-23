@@ -1,7 +1,7 @@
 """Widen language columns on cache_entries and cache_telemetry to String(80).
 
-Revision ID: 0006_widen_language_columns
-Revises: 0005_cache_response_variants
+Revision ID: a1b2c3d4e5f6
+Revises: a1b2c3d4e5f5
 Create Date: 2026-11-15 00:01:00.000000
 """
 
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0006_widen_language_columns"
-down_revision = "0005_cache_response_variants"
+revision = "a1b2c3d4e5f6"
+down_revision = "a1b2c3d4e5f5"
 branch_labels = None
 depends_on = None
 

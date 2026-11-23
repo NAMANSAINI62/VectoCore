@@ -102,12 +102,12 @@ export default function LogsPage() {
   }, [logs]);
 
   return (
-    <div className="space-y-5 pb-10">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1
-            className="text-xl font-bold tracking-tight flex items-center gap-2"
+            className="text-2xl font-medium tracking-tight flex items-center gap-2"
             style={{ color: 'var(--foreground)' }}
           >
             <ScrollText className="w-5 h-5" style={{ color: 'var(--accent)' }} />
@@ -132,41 +132,20 @@ export default function LogsPage() {
             <BarChart3 className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
             {showCharts ? 'Hide Charts' : 'Show Charts'}
           </button>
-          <button
-            type="button"
-            onClick={async () => {
-              setRefreshSpin(true);
-              await refetch();
-              setTimeout(() => setRefreshSpin(false), 450);
-            }}
-            disabled={isFetching || refreshSpin}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition active:scale-95 disabled:opacity-70 cursor-pointer"
-            style={{
-              backgroundColor: 'var(--card)',
-              borderColor: 'var(--border)',
-              color: 'var(--foreground)',
-            }}
-          >
-            <RefreshCw
-              className={`w-3.5 h-3.5 ${isFetching || refreshSpin ? 'animate-spin' : ''}`}
-              style={{ color: isFetching || refreshSpin ? 'var(--accent)' : undefined }}
-            />
-            {isFetching || refreshSpin ? 'Refreshing...' : 'Refresh'}
-          </button>
         </div>
       </div>
 
       {/* 4-Column Summary Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div
           className="rounded-xl border p-3.5"
           style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
-          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
+          <div className="flex items-center justify-between text-xs font-medium" style={{ color: 'var(--muted-foreground)' }}>
             <span>Matching Logs</span>
             <ScrollText className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
           </div>
-          <div className="text-xl font-bold mt-1.5 tabular-nums" style={{ color: 'var(--stat-number, var(--foreground))' }}>
+          <div className="text-2xl font-medium tracking-tight mt-1.5 tabular-nums" style={{ color: 'var(--stat-number, var(--foreground))' }}>
             {isLoading ? '—' : summary.total}
           </div>
         </div>
@@ -175,11 +154,11 @@ export default function LogsPage() {
           className="rounded-xl border p-3.5"
           style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
-          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
+          <div className="flex items-center justify-between text-xs font-medium" style={{ color: 'var(--muted-foreground)' }}>
             <span>Cache Hits</span>
             <Zap className="w-3.5 h-3.5" style={{ color: 'var(--hit-text)' }} />
           </div>
-          <div className="text-xl font-bold mt-1.5 tabular-nums" style={{ color: 'var(--hit-text)' }}>
+          <div className="text-2xl font-medium tracking-tight mt-1.5 tabular-nums" style={{ color: 'var(--hit-text)' }}>
             {isLoading ? '—' : summary.hits}
           </div>
         </div>
@@ -188,11 +167,11 @@ export default function LogsPage() {
           className="rounded-xl border p-3.5"
           style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
-          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
+          <div className="flex items-center justify-between text-xs font-medium" style={{ color: 'var(--muted-foreground)' }}>
             <span>LLM Misses</span>
             <Activity className="w-3.5 h-3.5" style={{ color: 'var(--miss-text)' }} />
           </div>
-          <div className="text-xl font-bold mt-1.5 tabular-nums" style={{ color: 'var(--miss-text)' }}>
+          <div className="text-2xl font-medium tracking-tight mt-1.5 tabular-nums" style={{ color: 'var(--miss-text)' }}>
             {isLoading ? '—' : summary.misses}
           </div>
         </div>
@@ -201,11 +180,11 @@ export default function LogsPage() {
           className="rounded-xl border p-3.5"
           style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
-          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
+          <div className="flex items-center justify-between text-xs font-medium" style={{ color: 'var(--muted-foreground)' }}>
             <span>Avg Latency</span>
             <Clock className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
           </div>
-          <div className="text-xl font-bold mt-1.5 tabular-nums" style={{ color: 'var(--stat-number, var(--foreground))' }}>
+          <div className="text-2xl font-medium tracking-tight mt-1.5 tabular-nums" style={{ color: 'var(--stat-number, var(--foreground))' }}>
             {isLoading ? '—' : `${summary.avgLatency}ms`}
           </div>
         </div>
@@ -306,7 +285,7 @@ export default function LogsPage() {
           <div className="custom-scrollbar max-h-[calc(100vh-340px)] min-h-[260px] overflow-y-auto overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead
-                className="sticky top-0 z-10 text-[11px] font-semibold uppercase tracking-wider border-b"
+                className="sticky top-0 z-10 text-xs font-medium border-b"
                 style={{
                   backgroundColor: 'var(--muted)',
                   color: 'var(--muted-foreground)',

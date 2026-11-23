@@ -28,9 +28,21 @@ class User(Base):
         nullable=False,
         index=True,
     )
-    password_hash: Mapped[str] = mapped_column(
+    password_hash: Mapped[str | None] = mapped_column(
         String(255),
+        nullable=True,
+    )
+    auth_provider: Mapped[str] = mapped_column(
+        String(32),
+        default="local",
+        server_default="local",
         nullable=False,
+    )
+    google_sub: Mapped[str | None] = mapped_column(
+        String(255),
+        unique=True,
+        nullable=True,
+        index=True,
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
@@ -57,11 +69,6 @@ class User(Base):
     # Relationships
     sessions = relationship(
         "UserSession",
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-    password_reset_tokens = relationship(
-        "PasswordResetToken",
         back_populates="user",
         cascade="all, delete-orphan",
     )

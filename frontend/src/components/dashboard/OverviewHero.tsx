@@ -10,50 +10,90 @@ export interface OverviewHeroProps {
   isLoading?: boolean;
 }
 
-export function OverviewHero(_props: OverviewHeroProps) {
+export function OverviewHero({ stats, isLoading }: OverviewHeroProps) {
+  const totalRequests = stats?.total_requests ?? 0;
+  const avgHitMs = stats?.avg_hit_latency_ms ?? 0;
+  const avgMissMs = stats?.avg_miss_latency_ms ?? 0;
+  const speedup = avgHitMs > 0 && avgMissMs > 0 ? `${(avgMissMs / avgHitMs).toFixed(1)}x` : '—';
+
   return (
-    <div
-      className="p-6 sm:p-8 rounded-2xl border shadow-xs transition-colors duration-200"
+    <section
+      className="rounded-2xl border p-6 sm:p-7 transition-colors duration-150"
       style={{
         background: 'var(--hero-bg)',
         borderColor: 'var(--hero-border)',
         color: 'var(--hero-text)',
       }}
     >
-      <div className="max-w-2xl space-y-3">
-        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight" style={{ color: 'var(--hero-text)' }}>
-          High-Performance AI Semantic Caching
-        </h1>
-        <p className="text-sm leading-relaxed" style={{ color: 'var(--hero-subtext)' }}>
-          Eliminate redundant LLM inferences with exact caching and
-          multilingual vector semantic search across English, Hindi, and Hinglish.
-        </p>
-        <div className="pt-2 flex flex-wrap gap-3">
-          <Link
-            href="/playground"
-            className="inline-flex items-center gap-2 px-4 py-2 font-semibold rounded-lg text-xs transition hover:opacity-90 shadow-xs"
-            style={{
-              backgroundColor: 'var(--hero-btn-primary-bg)',
-              color: 'var(--hero-btn-primary-text)',
-            }}
-          >
-            <MessageSquare className="w-4 h-4" />
-            Open AI Playground
-          </Link>
-          <Link
-            href="/cache"
-            className="inline-flex items-center gap-2 px-4 py-2 font-medium rounded-lg text-xs border transition hover:opacity-90"
-            style={{
-              backgroundColor: 'var(--hero-btn-secondary-bg)',
-              color: 'var(--hero-btn-secondary-text)',
-              borderColor: 'var(--hero-border)',
-            }}
-          >
-            <Database className="w-4 h-4" />
-            Explore Cache
-          </Link>
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+        <div className="max-w-xl space-y-2.5">
+          <h1 className="text-2xl font-medium tracking-tight" style={{ color: 'var(--hero-text)' }}>
+            Semantic Cache Overview
+          </h1>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--hero-subtext)' }}>
+            Exact Redis lookups and multilingual vector matching across English, Hindi, and Hinglish.
+          </p>
+          <div className="flex flex-wrap items-center gap-2.5 pt-1.5">
+            <Link
+              href="/playground"
+              className="inline-flex h-9 items-center gap-2 rounded-lg px-4 text-xs font-semibold transition-opacity hover:opacity-90"
+              style={{
+                backgroundColor: 'var(--hero-btn-primary-bg)',
+                color: 'var(--hero-btn-primary-text)',
+              }}
+            >
+              <MessageSquare className="h-3.5 w-3.5" strokeWidth={1.75} />
+              <span>Open Playground</span>
+            </Link>
+            <Link
+              href="/cache"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border px-4 text-xs font-medium transition-opacity hover:opacity-90"
+              style={{
+                backgroundColor: 'var(--hero-btn-secondary-bg)',
+                color: 'var(--hero-btn-secondary-text)',
+                borderColor: 'var(--hero-border)',
+              }}
+            >
+              <Database className="h-3.5 w-3.5" strokeWidth={1.75} />
+              <span>Explore Cache</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* Non-duplicative Hero Telemetry Strip */}
+        <div
+          className="grid grid-cols-3 divide-x rounded-xl border px-2 py-3.5 sm:px-4"
+          style={{
+            backgroundColor: 'rgba(255, 255, 255, 0.7)',
+            borderColor: 'var(--hero-border)',
+          }}
+        >
+          <div className="px-3 sm:px-4 space-y-1">
+            <p className="text-[11px]" style={{ color: 'var(--hero-subtext)' }}>
+              Total requests
+            </p>
+            <p className="text-xl font-medium tabular-nums" style={{ color: 'var(--hero-text)' }}>
+              {isLoading ? '—' : totalRequests.toLocaleString()}
+            </p>
+          </div>
+          <div className="px-3 sm:px-4 space-y-1" style={{ borderColor: 'var(--hero-border)' }}>
+            <p className="text-[11px]" style={{ color: 'var(--hero-subtext)' }}>
+              Speedup
+            </p>
+            <p className="text-xl font-medium tabular-nums" style={{ color: 'var(--hero-pill-text)' }}>
+              {isLoading ? '—' : speedup}
+            </p>
+          </div>
+          <div className="px-3 sm:px-4 space-y-1" style={{ borderColor: 'var(--hero-border)' }}>
+            <p className="text-[11px]" style={{ color: 'var(--hero-subtext)' }}>
+              Calls avoided
+            </p>
+            <p className="text-xl font-medium tabular-nums" style={{ color: 'var(--hero-text)' }}>
+              {isLoading ? '—' : (stats?.llm_calls_avoided ?? 0).toLocaleString()}
+            </p>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

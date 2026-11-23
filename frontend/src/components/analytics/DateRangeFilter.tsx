@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react';
-import { Calendar, RefreshCw } from 'lucide-react';
+import { Calendar } from 'lucide-react';
 
 export const DATE_PRESETS: Array<{ label: string; days: number | undefined }> = [
   { label: 'All time', days: undefined },
@@ -25,10 +25,7 @@ export function DateRangeFilter({
   appliedCustom,
   onSelectPreset,
   onApplyCustom,
-  onRefresh,
-  isRefreshing = false,
 }: DateRangeFilterProps) {
-  const [refreshSpin, setRefreshSpin] = useState(false);
   const [customStart, setCustomStart] = useState(appliedCustom?.start ?? '');
   const [customEnd, setCustomEnd] = useState(appliedCustom?.end ?? '');
 
@@ -129,22 +126,6 @@ export function DateRangeFilter({
           )}
         </PopoverPanel>
       </Popover>
-
-      {onRefresh ? (
-        <button
-          type="button"
-          onClick={() => {
-            setRefreshSpin(true);
-            onRefresh();
-            setTimeout(() => setRefreshSpin(false), 450);
-          }}
-          disabled={isRefreshing || refreshSpin}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-medium text-[var(--foreground)] transition hover:bg-[var(--muted)] active:scale-95 disabled:opacity-60"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing || refreshSpin ? 'animate-spin text-[var(--accent)]' : ''}`} aria-hidden="true" />
-          {isRefreshing || refreshSpin ? 'Refreshing...' : 'Refresh'}
-        </button>
-      ) : null}
     </div>
   );
 }

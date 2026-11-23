@@ -134,6 +134,11 @@ class CacheTelemetry(Base):
     pgvector_search_latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     compatibility_latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    # Short-Term Memory Observability
+    memory_context_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    memory_summary_included: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    memory_window_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -149,7 +154,7 @@ class CacheSettings(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True
     )
     similarity_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.82)
-    default_ttl_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=72)
+    default_ttl_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=48)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

@@ -279,7 +279,7 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar({
 
           {groupedConversations.map((group) => (
             <div key={group.label} className="space-y-1.5">
-              <div className="px-2 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]/85">
+              <div className="px-2 pt-0.5 text-[11px] font-medium text-[var(--muted-foreground)]/85">
                 {group.label}
               </div>
 
@@ -516,7 +516,7 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar({
 
                 <div className="mt-4 space-y-3">
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--muted)]/45 p-2.5">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                    <div className="text-[11px] font-medium text-[var(--muted-foreground)]">
                       Current title
                     </div>
                     <p className="mt-1 text-xs leading-relaxed text-[var(--foreground)]/85 break-words whitespace-pre-wrap">

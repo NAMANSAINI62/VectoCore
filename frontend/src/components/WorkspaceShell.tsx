@@ -112,17 +112,17 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       }`}
     >
       {/* Top Navigation & Status Header */}
-      <header className="sticky top-0 z-30 flex h-[68px] shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--card)]/95 px-4 backdrop-blur sm:px-6 lg:px-8">
-        <div className="flex min-w-0 items-center gap-3">
+      <header className="sticky top-0 z-30 flex h-14 sm:h-16 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--card)]/95 px-3 backdrop-blur sm:px-6 lg:px-8">
+        <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <Link
             href="/"
-            className="flex shrink-0 items-center gap-2.5 rounded-xl pr-1 transition-opacity hover:opacity-90"
+            className="flex shrink-0 items-center gap-2.5 rounded-lg pr-1 transition-opacity hover:opacity-90"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent)] text-[var(--accent-foreground)] shadow-xs">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--accent-foreground)]">
               <Layers className="h-4 w-4" aria-hidden="true" />
             </span>
             <span className="hidden min-w-0 sm:block">
-              <span className="block text-sm font-bold tracking-tight text-[var(--foreground)]">
+              <span className="block text-sm font-semibold tracking-tight text-[var(--foreground)]">
                 Vector Cache
               </span>
             </span>
@@ -131,18 +131,24 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           <span className="hidden h-5 w-px bg-[var(--border)] sm:inline-block" aria-hidden="true" />
 
           <div className="min-w-0">
-            <p className="truncate text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+            <p className="hidden truncate text-[11px] text-[var(--muted-foreground)] sm:block">
               Workspace / {currentPage.label}
             </p>
-            <h1 className="truncate text-sm font-semibold text-[var(--foreground)]">{currentPage.label}</h1>
+            <h1 className="truncate text-sm font-medium text-[var(--foreground)]">{currentPage.label}</h1>
           </div>
         </div>
 
         <div className="flex items-center gap-2.5 sm:gap-3">
           <ThemeSwitcher />
-          <div className="hidden items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/70 px-2.5 py-1.5 text-xs text-[var(--foreground)] sm:flex">
-            <UserRound className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden="true" />
-            <span className="max-w-[140px] truncate font-medium">{user.full_name}</span>
+          <div
+            title={user.email}
+            className="hidden items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/70 px-2.5 py-1 text-xs text-[var(--foreground)] sm:flex"
+          >
+            <UserRound className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" />
+            <div className="min-w-0 leading-tight">
+              <div className="max-w-[160px] truncate font-medium">{user.full_name}</div>
+              <div className="max-w-[180px] truncate text-[10px] text-[var(--muted-foreground)]">{user.email}</div>
+            </div>
           </div>
           <button
             type="button"
@@ -162,17 +168,17 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         className={
           isPlayground
             ? 'flex min-h-0 flex-1 flex-col overflow-hidden p-0'
-            : 'mx-auto w-full max-w-[1440px] flex-1 px-4 pt-6 pb-20 sm:px-7 sm:pt-8 sm:pb-24'
+            : 'mx-auto w-full max-w-[1440px] flex-1 px-3 pt-4 pb-20 sm:px-6 sm:pt-6 sm:pb-24'
         }
       >
         {children}
       </main>
 
       {/* Bottom Navigation Dock */}
-      <div className="pointer-events-none sticky bottom-0 z-30 shrink-0 px-3 pb-3 pt-2 sm:px-6 sm:pb-4">
+      <div className="pointer-events-none sticky bottom-0 z-30 shrink-0 px-2 pb-2.5 pt-2 sm:px-6 sm:pb-4">
         <nav
           aria-label="Workspace bottom navigation"
-          className="pointer-events-auto mx-auto flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-[var(--border)] p-1.5 backdrop-blur-md"
+          className="pointer-events-auto mx-auto grid w-full max-w-full grid-cols-6 items-center gap-0.5 rounded-2xl border border-[var(--border)] p-1 backdrop-blur-md sm:flex sm:w-fit sm:gap-1 sm:p-1.5"
           style={{
             backgroundColor: 'var(--dock-bg)',
             boxShadow: 'var(--dock-shadow)',
@@ -186,7 +192,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 href={href}
                 aria-label={label}
                 aria-current={active ? 'page' : undefined}
-                className={`group relative flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] sm:px-3.5 ${
+                className={`group relative flex flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1.5 text-[10px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] sm:shrink-0 sm:flex-row sm:gap-2 sm:px-3.5 sm:py-2 sm:text-xs sm:font-semibold ${
                   active
                     ? 'bg-[var(--accent)] text-[var(--accent-foreground)] shadow-xs'
                     : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
@@ -198,7 +204,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   }`}
                   aria-hidden="true"
                 />
-                <span className="whitespace-nowrap">{shortLabel}</span>
+                <span className="truncate max-w-full whitespace-nowrap">{shortLabel}</span>
               </Link>
             );
           })}

@@ -3,8 +3,8 @@
 from alembic import op
 
 
-revision = "0011_remove_retired_features"
-down_revision = "0010_guardrails_and_evaluations"
+revision = "a1b2c3d4e5fb"
+down_revision = "a1b2c3d4e5fa"
 branch_labels = None
 depends_on = None
 

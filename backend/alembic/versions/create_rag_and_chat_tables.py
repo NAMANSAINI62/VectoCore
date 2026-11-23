@@ -1,7 +1,7 @@
 """Create private RAG documents, chat, preferences, and usage tables.
 
-Revision ID: 0002_rag_tables
-Revises: 0001_auth_tables
+Revision ID: a1b2c3d4e5f2
+Revises: a1b2c3d4e5f1
 Create Date: 2026-11-13
 """
 
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0002_rag_tables"
-down_revision: Union[str, None] = "0001_auth_tables"
+revision: str = "a1b2c3d4e5f2"
+down_revision: Union[str, None] = "a1b2c3d4e5f1"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

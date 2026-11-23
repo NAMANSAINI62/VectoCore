@@ -345,7 +345,7 @@ export function ModelSelector({
           <div className="grid grid-cols-[148px_1fr] sm:grid-cols-[164px_1fr] gap-2.5 h-[258px]">
             {/* Left Rail: Categories */}
             <div className="flex flex-col gap-1 border-r border-white/[0.08] pr-2 overflow-y-auto custom-scrollbar">
-              <div className="px-1.5 pt-0.5 pb-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-neutral-400">
+              <div className="px-1.5 pt-0.5 pb-0.5 text-[10px] font-medium text-neutral-400">
                 Gemini
               </div>
 

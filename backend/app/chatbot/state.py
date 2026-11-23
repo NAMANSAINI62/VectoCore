@@ -37,3 +37,9 @@ class ChatState(TypedDict, total=False):
     language_valid: bool
     output_blocked: bool
     output_reason_category: str | None
+    memory_context_tokens: int
+    memory_summary_included: bool
+    memory_window_size: int
+    memory_dropped_messages: list[Any]
+    memory_used: bool
+    proven_context_independent: bool

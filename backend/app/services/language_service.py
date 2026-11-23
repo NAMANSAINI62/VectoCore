@@ -15,7 +15,7 @@ from lingua import Language, LanguageDetector, LanguageDetectorBuilder
 from pydantic import BaseModel, Field
 
 from app.llm.registry import available_models, get_chat_model
-from app.services.intent_validation_service import _invoke_structured_with_fallback
+from app.services.intent_service import _invoke_structured_with_fallback
 
 logger = logging.getLogger(__name__)
 

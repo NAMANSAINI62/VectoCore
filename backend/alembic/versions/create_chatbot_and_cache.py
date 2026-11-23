@@ -1,7 +1,7 @@
 """Extend existing conversation records for provider-aware chatbot streaming.
 
-Revision ID: 0003_chatbot_foundation
-Revises: 0002_rag_tables
+Revision ID: a1b2c3d4e5f3
+Revises: a1b2c3d4e5f2
 Create Date: 2026-11-13
 """
 
@@ -10,8 +10,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "0003_chatbot_foundation"
-down_revision: Union[str, None] = "0002_rag_tables"
+revision: str = "a1b2c3d4e5f3"
+down_revision: Union[str, None] = "a1b2c3d4e5f2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

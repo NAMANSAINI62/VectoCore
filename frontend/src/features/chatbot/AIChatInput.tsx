@@ -97,14 +97,14 @@ export function AIChatInput({
       {/* Translucent Glass Composer Container */}
       <div
         ref={containerRef}
-        className={`mx-auto max-w-3xl relative rounded-[22px] border text-white transition-all duration-200 ease-out backdrop-blur-2xl ${
+        className={`mx-auto max-w-3xl relative rounded-2xl border transition-all duration-200 ease-out ${
           isFocused || hasContent
-            ? 'border-white/[0.22] shadow-xl shadow-black/60 ring-1 ring-white/10'
-            : 'border-white/[0.12] shadow-lg shadow-black/45 hover:border-white/[0.16]'
+            ? 'border-[var(--accent)]/50 shadow-lg ring-1 ring-[var(--accent)]/20'
+            : 'border-[var(--border)] shadow-md hover:border-[var(--accent)]/30'
         }`}
         style={{
-          background: 'linear-gradient(180deg, rgba(32, 38, 48, 0.72) 0%, rgba(20, 24, 30, 0.82) 100%)',
-          boxShadow: '0 16px 36px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+          backgroundColor: 'var(--card)',
+          color: 'var(--foreground)',
         }}
       >
         <form onSubmit={handleSubmit} className="flex flex-col p-2.5 sm:p-3">
@@ -121,31 +121,31 @@ export function AIChatInput({
               maxLength={12000}
               rows={1}
               placeholder="Ask anything..."
-              className="h-6 w-full resize-none border-0 bg-transparent p-0 text-[14px] leading-6 text-neutral-100 placeholder:text-neutral-400 outline-none focus:ring-0 custom-scrollbar"
+              className="h-6 w-full resize-none border-0 bg-transparent p-0 text-[14px] leading-6 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none focus:ring-0 custom-scrollbar"
               style={{ minHeight: '24px', maxHeight: '120px' }}
             />
           </div>
 
           {/* Bottom Toolbar */}
-          <div className="flex items-center justify-between pt-2 gap-2 border-t border-white/[0.08]">
-            {/* Left: Model Selector Glass Pill */}
+          <div className="flex items-center justify-between pt-2 gap-2 border-t border-[var(--border)]">
+            {/* Left: Model Selector Pill */}
             <Popover className="relative">
               {({ open, close }) => (
                 <>
-                  <PopoverButton className="group flex h-8 items-center gap-2 rounded-xl px-3 text-xs font-medium text-neutral-200 border border-white/10 bg-black/30 backdrop-blur-md transition-all duration-150 hover:bg-black/40 hover:border-white/20 active:scale-95 shadow-sm focus:outline-none">
+                  <PopoverButton className="group flex h-8 items-center gap-2 rounded-xl px-3 text-xs font-medium text-[var(--foreground)] border border-[var(--border)] bg-[var(--muted)]/60 transition-all duration-150 hover:bg-[var(--muted)] active:scale-95 shadow-sm focus:outline-none">
                     {provider === 'groq' ? (
-                      <Zap className="h-3.5 w-3.5 text-neutral-200 shrink-0" />
+                      <Zap className="h-3.5 w-3.5 text-[var(--accent)] shrink-0" />
                     ) : (
-                      <Sparkles className="h-3.5 w-3.5 text-neutral-200 shrink-0" />
+                      <Sparkles className="h-3.5 w-3.5 text-[var(--accent)] shrink-0" />
                     )}
-                    <span className="font-semibold text-white max-w-[150px] sm:max-w-[240px] truncate">
+                    <span className="font-semibold text-[var(--foreground)] max-w-[150px] sm:max-w-[240px] truncate">
                       {currentModel?.name ?? model}
                     </span>
-                    <span className="text-[10px] text-neutral-400 px-1.5 py-0.5 rounded-md bg-white/5 border border-white/5">
+                    <span className="text-[10px] text-[var(--muted-foreground)] px-1.5 py-0.5 rounded-md bg-[var(--card)] border border-[var(--border)]">
                       {formatProviderLabel(provider)}
                     </span>
                     <ChevronDown
-                      className={`h-3 w-3 text-neutral-400 transition-transform duration-200 ${
+                      className={`h-3 w-3 text-[var(--muted-foreground)] transition-transform duration-200 ${
                         open ? 'rotate-180' : ''
                       }`}
                     />

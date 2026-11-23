@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import get_settings
 from app.core import security
 from app.core.exceptions import InvalidResetTokenError
-from app.repositories.password_reset_repository import PasswordResetRepository
+from app.repositories.reset_token_repo import PasswordResetRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
 

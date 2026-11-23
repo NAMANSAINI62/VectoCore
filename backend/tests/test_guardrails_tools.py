@@ -35,14 +35,15 @@ def test_extra_args_and_model_supplied_user_id_rejected() -> None:
     asyncio.run(_run())
 
 
-def test_tool_firewall_blocks_unsafe_sql_and_ssrf_and_checks_caps() -> None:
+def test_tool_firewall_blocks_unsafe_ssrf_and_checks_caps() -> None:
     async def _run() -> None:
         with pytest.raises(PermissionError):
-            await execute_tool("run_sql_query", {"query": "DROP TABLE users"}, owner_id=uuid.uuid4())
+            await execute_tool("run_sql_query", {"query": "SELECT * FROM users"}, owner_id=uuid.uuid4())
         with pytest.raises(PermissionError):
             await execute_tool("fetch_url", {"url": "http://127.0.0.1:8080/admin"}, owner_id=uuid.uuid4())
 
     asyncio.run(_run())
     assert MAX_TOOL_CALLS_PER_REQUEST == 3
     assert supports_tool_calling("openai/gpt-oss-20b") is True
-    assert supports_tool_calling("unknown-model") is False
+    # All models (including unlisted ones) are allowed to use MCP tools
+    assert supports_tool_calling("unknown-model") is True

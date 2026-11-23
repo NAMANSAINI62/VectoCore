@@ -1,7 +1,9 @@
 """FastAPI Application entrypoint."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 import uvicorn
 from fastapi import FastAPI, Request, status
@@ -15,6 +17,7 @@ from app.cache.redis_client import close_redis_connection
 
 # Import models so SQLAlchemy metadata registers them
 import app.models.user
+import app.models.auth_otp
 import app.models.user_session
 import app.models.password_reset
 import app.models.chat
@@ -29,6 +32,34 @@ logger = logging.getLogger("semantic_cache_api")
 settings = get_settings()
 
 
+async def _purge_expired_cache_entries_once() -> int:
+    """Delete expired cache_entries rows while keeping cache_telemetry, guardrail_events, and chat history intact."""
+    from sqlalchemy import delete
+    from app.database.session import async_session_factory
+    from app.models.cache import CacheEntry
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            delete(CacheEntry).where(CacheEntry.expires_at <= datetime.now(timezone.utc))
+        )
+        await session.commit()
+        return int(result.rowcount or 0)
+
+
+async def _expired_cache_cleanup_loop(interval_seconds: int = 3600) -> None:
+    """Periodically purge expired cache_entries rows on startup and every hour."""
+    while True:
+        try:
+            deleted = await _purge_expired_cache_entries_once()
+            if deleted > 0:
+                logger.info(f"Expired cache cleanup removed {deleted} stale cache_entries row(s).")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(f"Expired cache cleanup skipped: {exc}")
+        await asyncio.sleep(interval_seconds)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager for startup and shutdown routines."""
@@ -38,6 +69,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     guardrails_service = get_guardrails_service()
     await guardrails_service.startup(run_self_tests=True)
 
+    from app.mcp.client_manager import get_mcp_client_manager
+    mcp_manager = get_mcp_client_manager()
+    await mcp_manager.startup()
+
     # Ensure base ORM tables exist; column evolutions are managed by Alembic migrations
     try:
         async with engine.begin() as conn:
@@ -46,8 +81,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as exc:
         logger.error(f"Error ensuring database tables: {exc}")
 
+    cleanup_task = asyncio.create_task(_expired_cache_cleanup_loop(interval_seconds=3600))
+
     yield
     logger.info("Shutting down application resources...")
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
+    await mcp_manager.shutdown()
     await guardrails_service.shutdown()
     await close_redis_connection()
 

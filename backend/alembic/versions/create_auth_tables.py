@@ -1,6 +1,6 @@
 """create authentication tables
 
-Revision ID: 0001_auth_tables
+Revision ID: a1b2c3d4e5f1
 Revises: 
 Create Date: 2026-11-12
 
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision: str = '0001_auth_tables'
+revision: str = 'a1b2c3d4e5f1'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

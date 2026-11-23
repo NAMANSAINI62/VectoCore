@@ -1,7 +1,7 @@
 """Add semantic match insights snapshot columns to cache_telemetry.
 
-Revision ID: 0007_semantic_match_insights
-Revises: 0006_widen_language_columns
+Revision ID: a1b2c3d4e5f7
+Revises: a1b2c3d4e5f6
 Create Date: 2026-11-15 22:05:00.000000
 """
 
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "0007_semantic_match_insights"
-down_revision = "0006_widen_language_columns"
+revision = "a1b2c3d4e5f7"
+down_revision = "a1b2c3d4e5f6"
 branch_labels = None
 depends_on = None
 

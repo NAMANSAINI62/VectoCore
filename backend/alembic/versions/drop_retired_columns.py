@@ -1,7 +1,7 @@
 """Historical migration slot retained for Alembic revision continuity."""
 
-revision = "0010_guardrails_and_evaluations"
-down_revision = "0009_nemotron_embed_2048"
+revision = "a1b2c3d4e5fa"
+down_revision = "a1b2c3d4e5f9"
 branch_labels = None
 depends_on = None
 

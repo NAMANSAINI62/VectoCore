@@ -1,0 +1,24 @@
+{
+  "servers": [
+    {
+      "name": "fetch",
+      "transport": "stdio",
+      "command": "D:\\venvs\\caching_app\\Scripts\\python.exe",
+      "args": ["-m", "app.mcp.servers.web_fetch_server"],
+      "allowed_env_vars": [],
+      "allowlisted_tools": ["get_page"],
+      "timeout_sec": 12.0,
+      "read_only": true
+    },
+    {
+      "name": "search",
+      "transport": "stdio",
+      "command": "D:\\venvs\\caching_app\\Scripts\\python.exe",
+      "args": ["-m", "app.mcp.servers.web_search_server"],
+      "allowed_env_vars": ["TAVILY_API_KEY"],
+      "allowlisted_tools": ["web_search"],
+      "timeout_sec": 10.0,
+      "read_only": true
+    }
+  ]
+}

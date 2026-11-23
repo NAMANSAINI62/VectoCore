@@ -14,6 +14,7 @@ from app.config.settings import get_settings
 from app.database.base import Base
 # Import all models so Alembic registers them for autogenerate
 from app.models.user import User
+from app.models.auth_otp import AuthOtp
 from app.models.user_session import UserSession
 from app.models.password_reset import PasswordResetToken
 from app.models.chat import ChatConversation, ChatMessage

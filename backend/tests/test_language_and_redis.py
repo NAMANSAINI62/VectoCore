@@ -28,7 +28,7 @@ from app.services.cache_engine import (
     is_context_dependent_followup,
     normalize_query_for_cache,
 )
-from app.services.response_language_resolver import (
+from app.services.language_service import (
     detect_input_language,
     extract_explicit_override,
     resolve_response_language,
@@ -492,9 +492,9 @@ async def test_indirect_language_override_directives():
     fake_llm.with_structured_output.return_value = SimpleNamespace(ainvoke=_fake_structured_call)
 
     with patch(
-        "app.services.response_language_resolver.available_models",
+        "app.services.language_service.available_models",
         return_value=[SimpleNamespace(provider="openai", id="gpt-4o-mini")],
-    ), patch("app.services.response_language_resolver.get_chat_model", return_value=fake_llm):
+    ), patch("app.services.language_service.get_chat_model", return_value=fake_llm):
         r_tokyo = await resolve_response_language_async("Explain microservices. Reply in the language spoken in Tokyo.")
         assert r_tokyo.effective_response_language == "Japanese"
         assert r_tokyo.language_policy == "explicit_override"

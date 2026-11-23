@@ -1,7 +1,7 @@
 """Switch cache_entries embeddings to nvidia/nemotron-3.5-embed-1b (vector(2048)) and re-embed existing rows.
 
-Revision ID: 0009_nemotron_embed_2048
-Revises: 0008_pgvector_hnsw
+Revision ID: a1b2c3d4e5f9
+Revises: a1b2c3d4e5f8
 Create Date: 2026-11-18 00:46:30.000000
 """
 
@@ -14,8 +14,8 @@ from app.services.embedding_service import (
     get_embedding_service,
 )
 
-revision = "0009_nemotron_embed_2048"
-down_revision = "0008_pgvector_hnsw"
+revision = "a1b2c3d4e5f9"
+down_revision = "a1b2c3d4e5f8"
 branch_labels = None
 depends_on = None
 

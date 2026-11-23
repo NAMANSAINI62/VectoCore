@@ -1,7 +1,7 @@
 """Enable pgvector extension, convert query_embedding to vector(384), and add HNSW cosine index.
 
-Revision ID: 0008_pgvector_hnsw
-Revises: 0007_semantic_match_insights
+Revision ID: a1b2c3d4e5f8
+Revises: a1b2c3d4e5f7
 Create Date: 2026-11-16 19:42:00.000000
 """
 
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0008_pgvector_hnsw"
-down_revision = "0007_semantic_match_insights"
+revision = "a1b2c3d4e5f8"
+down_revision = "a1b2c3d4e5f7"
 branch_labels = None
 depends_on = None
 

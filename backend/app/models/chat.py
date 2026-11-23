@@ -21,6 +21,9 @@ class ChatConversation(Base):
     title: Mapped[str] = mapped_column(String(180), nullable=False, default="New chat")
     selected_provider: Mapped[str] = mapped_column(String(40), nullable=False, default="groq", server_default="groq")
     selected_model: Mapped[str] = mapped_column(String(160), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_upto_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    summary_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

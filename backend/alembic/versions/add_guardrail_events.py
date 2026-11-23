@@ -5,8 +5,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "0012_guardrails_foundation"
-down_revision = "0011_remove_retired_features"
+revision = "a1b2c3d4e5fc"
+down_revision = "a1b2c3d4e5fb"
 branch_labels = None
 depends_on = None
 

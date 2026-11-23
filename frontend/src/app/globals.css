@@ -8,28 +8,72 @@
    10% Accent / Active / Interactive (--accent, --accent-soft)
    Plus lightweight --hero-* and unified --stat-number per theme */
 
-/* Sage Paper (Default): Sage #9CAF88 + Off-White #F7F5EF + Tomato Red #E8412C */
+/* Botanical Ink (Default): Crisp Alabaster #F3F5F2 + White #FFFFFF + Deep Ink #0F1F18 + Signal Teal #0D9488 */
 :root,
 [data-theme='mint'] {
+  --background: #f3f5f2;
+  --foreground: #0f1f18;
+  --card: #ffffff;
+  --card-foreground: #0f1f18;
+  --muted: #e6ece7;
+  --muted-foreground: #4c6056;
+  --border: #d8e1da;
+  --accent: #0d9488;
+  --accent-soft: #ccfbf1;
+  --accent-foreground: #ffffff;
+  --hero-bg: linear-gradient(135deg, #e5efe9 0%, #f4f8f6 55%, #eaf3ee 100%);
+  --hero-border: #c8dcd1;
+  --hero-text: #0f1f18;
+  --hero-subtext: #465e53;
+  --hero-pill-bg: #ffffff;
+  --hero-pill-text: #0d9488;
+  --hero-btn-primary-bg: #0d9488;
+  --hero-btn-primary-text: #ffffff;
+  --hero-btn-secondary-bg: #ffffff;
+  --hero-btn-secondary-text: #0f1f18;
+  --stat-number: #0f1f18;
+  --hit-bg: #dcfce7;
+  --hit-text: #166534;
+  --miss-bg: #ffe4e6;
+  --miss-text: #be123c;
+  --code-bg: #eaf0eb;
+  --code-text: #0f1f18;
+  --chart-exact: #0d9488;
+  --chart-semantic: #d97706;
+  --chart-miss: #e11d48;
+  --chart-input: #2563eb;
+  --chart-output: #7c3aed;
+  --chart-savings: #059669;
+  --chart-neutral: #64748b;
+  --chart-grid: rgba(15, 31, 24, 0.09);
+  --chart-axis: #4c6056;
+  --dock-bg: rgba(255, 255, 255, 0.94);
+  --dock-shadow: 0 12px 32px -8px rgba(15, 31, 24, 0.16), 0 2px 6px rgba(15, 31, 24, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --scrollbar-thumb: rgba(15, 31, 24, 0.22);
+  --scrollbar-thumb-hover: rgba(15, 31, 24, 0.42);
+}
+
+/* Sage Paper (Classic): Sage #9CAF88 + Off-White #F7F5EF + Tomato Red #E8412C */
+[data-theme='sage'] {
   --background: #eef3ea;
   --foreground: #1f2e1d;
-  --card: #F7F5EF;
+  --card: #f7f5ef;
   --card-foreground: #1f2e1d;
   --muted: #dfe8d8;
   --muted-foreground: #4d6248;
   --border: #c5d4bb;
-  --accent: #E8412C;
+  --accent: #e8412c;
   --accent-soft: #fce8e5;
   --accent-foreground: #ffffff;
   --hero-bg: linear-gradient(135deg, #dce5d4 0%, #eef3ea 55%, #e4ecdd 100%);
   --hero-border: #b8caac;
   --hero-text: #1f2e1d;
   --hero-subtext: #465c42;
-  --hero-pill-bg: #F7F5EF;
+  --hero-pill-bg: #f7f5ef;
   --hero-pill-text: #3f5b38;
-  --hero-btn-primary-bg: #E8412C;
+  --hero-btn-primary-bg: #e8412c;
   --hero-btn-primary-text: #ffffff;
-  --hero-btn-secondary-bg: #F7F5EF;
+  --hero-btn-secondary-bg: #f7f5ef;
   --hero-btn-secondary-text: #2c3e29;
   --stat-number: #2c4427;
   --hit-bg: #d4e8d1;
@@ -38,12 +82,12 @@
   --miss-text: #b82c1a;
   --code-bg: #e6ece0;
   --code-text: #1f2e1d;
-  --chart-exact: #789B83;
-  --chart-semantic: #D69A62;
-  --chart-miss: #C97970;
-  --chart-input: #829BB5;
-  --chart-output: #A18AB8;
-  --chart-savings: #557D65;
+  --chart-exact: #789b83;
+  --chart-semantic: #d69a62;
+  --chart-miss: #c97970;
+  --chart-input: #829bb5;
+  --chart-output: #a18ab8;
+  --chart-savings: #557d65;
   --chart-neutral: #929292;
   --chart-grid: rgba(77, 98, 72, 0.16);
   --chart-axis: #5a6d56;

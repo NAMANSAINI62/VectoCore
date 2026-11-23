@@ -87,6 +87,9 @@ export interface TelemetryItem {
   related_candidates?: RelatedCacheMatchItem[] | null;
   error_type?: string | null;
   error_message?: string | null;
+  memory_context_tokens?: number;
+  memory_summary_included?: boolean;
+  memory_window_size?: number;
   semantic_match_insights?: SemanticMatchInsights | null;
   created_at: string;
 }
@@ -202,7 +205,9 @@ export const cacheApi = createApi({
     credentials: 'include',
   }),
   keepUnusedDataFor: 300,
-  tagTypes: ['CacheEntries', 'CacheStats', 'CacheSettings'],
+  refetchOnFocus: true,
+  refetchOnReconnect: true,
+  tagTypes: ['CacheEntries', 'CacheStats', 'CacheSettings', 'Models', 'Providers'],
   endpoints: (builder) => ({
     getCacheEntries: builder.query<
       CacheEntriesResponse,
@@ -242,10 +247,12 @@ export const cacheApi = createApi({
 
     getModels: builder.query<ConfiguredModel[], void>({
       query: () => 'models',
+      providesTags: ['Models'],
     }),
 
     getProviders: builder.query<ConfiguredProvider[], void>({
       query: () => 'providers',
+      providesTags: ['Providers'],
     }),
 
     getCacheSettings: builder.query<CacheSettings, void>({

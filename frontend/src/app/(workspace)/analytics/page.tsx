@@ -80,12 +80,12 @@ export default function AnalyticsPage() {
   ];
 
   return (
-    <div className="space-y-5 pb-10">
+    <div className="space-y-5">
       {/* Header & Date Filter */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h1
-            className="text-xl font-bold tracking-tight flex items-center gap-2"
+            className="text-2xl font-medium tracking-tight flex items-center gap-2"
             style={{ color: 'var(--foreground)' }}
           >
             <Activity className="w-5 h-5" style={{ color: 'var(--accent)' }} />
@@ -113,7 +113,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* 4-Column Balanced KPI Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* KPI 1: Real Tokens Saved */}
         <div
           className="rounded-xl border p-4 flex flex-col justify-between transition-colors"
@@ -121,7 +121,7 @@ export default function AnalyticsPage() {
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               Real Tokens Saved
@@ -134,7 +134,7 @@ export default function AnalyticsPage() {
             </span>
           </div>
           <div
-            className="text-2xl font-bold mt-2 tabular-nums"
+            className="text-2xl font-medium tracking-tight mt-2 tabular-nums"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
           >
             {isLoading ? '—' : formatCompact(stats?.real_tokens_saved ?? 0)}
@@ -152,7 +152,7 @@ export default function AnalyticsPage() {
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               Cache Hit Rate
@@ -165,7 +165,7 @@ export default function AnalyticsPage() {
             </span>
           </div>
           <div
-            className="text-2xl font-bold mt-2 tabular-nums"
+            className="text-2xl font-medium tracking-tight mt-2 tabular-nums"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
           >
             {isLoading ? '—' : `${(stats?.hit_rate_pct ?? 0).toFixed(1)}%`}
@@ -183,7 +183,7 @@ export default function AnalyticsPage() {
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               Avg Hit Latency
@@ -196,7 +196,7 @@ export default function AnalyticsPage() {
             </span>
           </div>
           <div
-            className="text-2xl font-bold mt-2 tabular-nums"
+            className="text-2xl font-medium tracking-tight mt-2 tabular-nums"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
           >
             {isLoading ? '—' : `${Math.round(stats?.avg_hit_latency_ms ?? 0)}ms`}
@@ -214,7 +214,7 @@ export default function AnalyticsPage() {
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               LLM Calls Avoided
@@ -227,7 +227,7 @@ export default function AnalyticsPage() {
             </span>
           </div>
           <div
-            className="text-2xl font-bold mt-2 tabular-nums"
+            className="text-2xl font-medium tracking-tight mt-2 tabular-nums"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
           >
             {isLoading ? '—' : formatCompact(stats?.llm_calls_avoided ?? stats?.cache_hits ?? 0)}

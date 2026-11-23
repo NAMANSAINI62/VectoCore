@@ -1,15 +1,15 @@
 """Add policy_version column to cache_entries for guardrail policy isolation.
 
 Revision ID: 0013_cache_entries_policy_version
-Revises: 0012_guardrails_foundation
+Revises: a1b2c3d4e5fc
 Create Date: 2026-11-22 13:10:00.000000
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0013_cache_policy_version"
-down_revision = "0012_guardrails_foundation"
+revision = "a1b2c3d4e5fd"
+down_revision = "a1b2c3d4e5fc"
 branch_labels = None
 depends_on = None
 

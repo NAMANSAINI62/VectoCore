@@ -49,8 +49,8 @@ def test_phase2_libraries_lingua_tiktoken_registry_judge_and_ttlcache():
     from unittest.mock import patch
     from cachetools import TTLCache
     from app.cache import redis_client
-    from app.services.response_language_resolver import detect_input_language
-    from app.services.intent_validation_service import _resolve_judge_model
+    from app.services.language_service import detect_input_language
+    from app.services.intent_service import _resolve_judge_model
 
     # 1. lingua-py multilingual detection + Hinglish guard
     assert detect_input_language("Explain microservices architecture clearly") == "English"
@@ -67,7 +67,7 @@ def test_phase2_libraries_lingua_tiktoken_registry_judge_and_ttlcache():
     # 3. Registry-driven judge resolution (no hardcoded provider chains)
     from types import SimpleNamespace
     with patch(
-        "app.services.intent_validation_service.available_models",
+        "app.services.intent_service.available_models",
         return_value=[SimpleNamespace(provider="openrouter", id="qwen/qwen3-32b")],
     ):
         prov, mod = _resolve_judge_model("groq", "openai/gpt-oss-120b")
@@ -99,7 +99,7 @@ def test_hinglish_pivot_parser_fallback():
     import asyncio
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock, patch
-    from app.services.intent_validation_service import canonicalize_hinglish_query_for_search
+    from app.services.intent_service import canonicalize_hinglish_query_for_search
 
     class _FakeLLM:
         def bind(self, **_kwargs):
@@ -112,9 +112,9 @@ def test_hinglish_pivot_parser_fallback():
             return SimpleNamespace(content='{"english_query": "What is the meaning of Python?"}')
 
     with patch(
-        "app.services.intent_validation_service.available_models",
+        "app.services.intent_service.available_models",
         return_value=[SimpleNamespace(provider="groq", id="openai/gpt-oss-20b")],
-    ), patch("app.services.intent_validation_service.get_chat_model", return_value=_FakeLLM()):
+    ), patch("app.services.intent_service.get_chat_model", return_value=_FakeLLM()):
         out = asyncio.run(
             canonicalize_hinglish_query_for_search(
                 "Python ka meaning kya hai?",
@@ -129,8 +129,8 @@ def test_qa_fixes_and_cloud_url_normalization(monkeypatch):
     from types import SimpleNamespace
     from app.cache import redis_client
     from app.config.settings import Settings
-    from app.services.intent_validation_service import _supports_structured_output
-    from app.services.response_language_resolver import detect_input_language
+    from app.services.intent_service import _supports_structured_output
+    from app.services.language_service import detect_input_language
 
     # 1. Mixed English + Devanagari query must detect Hindi (never Esperanto)
     assert detect_input_language("PostgreSQL MVCC क्या है?") == "Hindi"

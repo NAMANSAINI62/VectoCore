@@ -1,7 +1,7 @@
 """Add cache_response_variants table and translation/variant telemetry columns.
 
-Revision ID: 0005_cache_response_variants
-Revises: 0004_remove_rag_storage
+Revision ID: a1b2c3d4e5f5
+Revises: a1b2c3d4e5f4
 Create Date: 2026-11-14
 """
 
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0005_cache_response_variants"
-down_revision: Union[str, None] = "0004_remove_rag_storage"
+revision: str = "a1b2c3d4e5f5"
+down_revision: Union[str, None] = "a1b2c3d4e5f4"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

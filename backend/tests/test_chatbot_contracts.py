@@ -293,12 +293,9 @@ def test_gemini_proactive_and_reactive_model_failover(monkeypatch: pytest.Monkey
         router.reset()
 
 
-def test_gemini_intent_complexity_dynamic_routing_and_tts_fallback(monkeypatch: pytest.MonkeyPatch):
-    from contextlib import asynccontextmanager
-    from types import SimpleNamespace
+def test_gemini_intent_complexity_dynamic_routing():
     from app.config.settings import get_settings
     from app.llm import registry
-    from app.ai import gemini_media_service
 
     router = registry.get_quota_router()
     router.reset()
@@ -306,8 +303,6 @@ def test_gemini_intent_complexity_dynamic_routing_and_tts_fallback(monkeypatch: 
     try:
         current_settings = get_settings()
         assert current_settings.ACCESS_TOKEN_EXPIRE_MINUTES == 10080
-        assert "gemini-2.5-pro-preview-tts" not in current_settings.GEMINI_TTS_MODELS
-        assert "gemini-3.8-flash-tts" in current_settings.GEMINI_TTS_MODELS
 
         gemini_opts = [opt for opt in registry.available_models() if opt.provider == "gemini"]
         gemini_ids = {opt.id for opt in gemini_opts}
@@ -396,83 +391,5 @@ def test_gemini_intent_complexity_dynamic_routing_and_tts_fallback(monkeypatch: 
             message="Compare LRU vs LFU caching policies and show a Python example.",
         )
         assert (prov_b2, mod_b2) == ("gemini", "gemini-3.1-flash-lite")
-
-        # TTS pool rotates off rate-limited gemini-3.8-flash-tts -> gemini-3.1-flash-tts-preview
-        called_tts: list[str] = []
-
-        class FakeModels:
-            async def generate_content(self, *, model: str, contents: str, config: object):
-                called_tts.append(model)
-                if model == "gemini-3.8-flash-tts":
-                    raise RuntimeError("429 RESOURCE_EXHAUSTED")
-                part = SimpleNamespace(inline_data=SimpleNamespace(data=b"\x00\x00\x01\x00", mime_type="audio/L16;rate=24000"))
-                return SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part]))])
-
-        # Live API aio.live.connect handler across translate, preview, and extended_thinking
-        live_calls: list[tuple[str, object]] = []
-
-        class FakeLiveSession:
-            def __init__(self, model_name: str) -> None:
-                self.model_name = model_name
-
-            async def send_client_content(self, *, turns: object, turn_complete: bool = True) -> None:
-                return None
-
-            async def receive(self):
-                if "thinking" in self.model_name:
-                    parts = [
-                        SimpleNamespace(text="Reasoning steps...", thought=True),
-                        SimpleNamespace(text="Final reasoned answer", thought=False),
-                    ]
-                elif "translate" in self.model_name:
-                    parts = [SimpleNamespace(text="Translated output", thought=False)]
-                else:
-                    parts = [SimpleNamespace(text="Live preview output", thought=False)]
-                yield SimpleNamespace(
-                    server_content=SimpleNamespace(
-                        model_turn=SimpleNamespace(parts=parts),
-                        output_transcription=None,
-                        turn_complete=True,
-                        generation_complete=True,
-                    )
-                )
-
-        class FakeLiveAPI:
-            @asynccontextmanager
-            async def connect(self, *, model: str, config: object = None):
-                live_calls.append((model, config))
-                if model == "gemini-3.8-live":
-                    raise RuntimeError("429 RESOURCE_EXHAUSTED")
-                yield FakeLiveSession(model)
-
-        fake_client = SimpleNamespace(aio=SimpleNamespace(models=FakeModels(), live=FakeLiveAPI()))
-        monkeypatch.setattr(gemini_media_service.genai, "Client", lambda api_key: fake_client)
-        monkeypatch.setattr(gemini_media_service.settings, "GEMINI_API_KEY", "test-key")
-
-        audio_b64, mime = asyncio.run(gemini_media_service.synthesize_speech_with_fallback("Hello world"))
-        assert mime == "audio/wav"
-        assert len(audio_b64) > 10
-        assert called_tts[:2] == ["gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview"]
-
-        t_text, t_thoughts, t_model = asyncio.run(
-            gemini_media_service.run_live_gemini_session("Namaste", mode="translate", target_language="English")
-        )
-        assert t_text == "Live preview output"
-        assert t_thoughts is None
-        assert t_model == "gemini-3.1-flash-live-preview"
-
-        et_text, et_thoughts, et_model = asyncio.run(
-            gemini_media_service.run_live_gemini_session("Solve x^2=9", mode="extended_thinking")
-        )
-        assert et_text == "Final reasoned answer"
-        assert et_thoughts == "Reasoning steps..."
-        assert et_model == "gemini-3.8-live-extended-thinking"
-
-        p_text, p_thoughts, p_model = asyncio.run(
-            gemini_media_service.run_live_gemini_session("Preview test", mode="preview")
-        )
-        assert p_text == "Live preview output"
-        assert p_thoughts is None
-        assert p_model == "gemini-3.1-flash-live-preview"
     finally:
         router.reset()

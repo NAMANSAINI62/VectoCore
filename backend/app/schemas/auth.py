@@ -51,3 +51,39 @@ class MessageResponse(BaseModel):
     """Generic message response."""
 
     message: str
+
+
+class EmailOtpRequest(BaseModel):
+    """Schema for requesting a 6-digit passwordless email OTP."""
+
+    email: EmailStr = Field(..., description="Email address to receive the 6-digit OTP")
+
+
+class EmailOtpVerifyRequest(BaseModel):
+    """Schema for verifying a 6-digit passwordless email OTP."""
+
+    email: EmailStr = Field(..., description="Email address")
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$", description="6-digit OTP code")
+
+
+class PasswordResetOtpRequest(BaseModel):
+    """Schema for resetting a password using a 6-digit email OTP."""
+
+    email: EmailStr = Field(..., description="Registered email address")
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$", description="6-digit OTP code")
+    new_password: str = Field(..., min_length=8, max_length=128, description="New password (min 8 characters)")
+
+
+class ResetPasswordOtpRequest(BaseModel):
+    """Schema for resetting password using a 6-digit email OTP."""
+
+    email: EmailStr = Field(..., description="Registered email address")
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$", description="6-digit OTP code")
+    new_password: str = Field(..., min_length=8, max_length=128, description="New password (min 8 characters)")
+
+
+class AuthMethodsResponse(BaseModel):
+    """Availability flags for passwordless sign-in methods."""
+
+    google_enabled: bool
+    email_otp_enabled: bool

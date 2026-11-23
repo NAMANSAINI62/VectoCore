@@ -39,7 +39,27 @@ import {
 import { Model, Provider } from './ModelSelector';
 
 const MarkdownBody = memo(function MarkdownBody({ content }: { content: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>;
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        a: ({ href, children, ...props }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={href}
+            className="inline-flex items-center px-1 py-0.2 mx-0.5 rounded text-[11px] font-semibold underline decoration-dotted hover:opacity-80 transition-opacity"
+            {...props}
+          >
+            {children}
+          </a>
+        ),
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
 });
 
 function ResponseLoadingBar({
@@ -145,6 +165,12 @@ export function Chatbot() {
 
   // Sidebar collapse toggle & timeline scrubber state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setIsSidebarCollapsed(true);
+    }
+  }, []);
   const [openingChat, setOpeningChat] = useState(false);
   const [activeTurnIndex, setActiveTurnIndex] = useState(0);
   const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null);
@@ -159,10 +185,57 @@ export function Chatbot() {
   const turnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const scrollRafRef = useRef<number | null>(null);
 
+  const sendingRef = useRef(sending);
+  sendingRef.current = sending;
+  const editingIdRef = useRef(editingId);
+  editingIdRef.current = editingId;
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const syncInFlightRef = useRef(false);
+
   const refreshConversations = useCallback(async () => {
     const rows = await ApiClient.get<Conversation[]>(`${API}/conversations`);
-    setConversations(rows);
+    setConversations((prev) => {
+      if (
+        prev.length === rows.length &&
+        prev.every((c, i) => c.id === rows[i].id && c.title === rows[i].title && c.updated_at === rows[i].updated_at)
+      ) {
+        return prev;
+      }
+      return rows;
+    });
   }, []);
+
+  useEffect(() => {
+    const handleGlobalSync = async () => {
+      if (syncInFlightRef.current || sendingRef.current || editingIdRef.current !== null) {
+        return;
+      }
+      syncInFlightRef.current = true;
+      try {
+        await refreshConversations();
+        const currentActiveId = activeIdRef.current;
+        if (currentActiveId && !sendingRef.current) {
+          const detail = await ApiClient.get<Conversation>(`${API}/conversations/${currentActiveId}`);
+          if (sendingRef.current || activeIdRef.current !== currentActiveId) return;
+          conversationCacheRef.current.set(currentActiveId, detail);
+          const nextMsgs = detail.messages ?? [];
+          if (nextMsgs.length !== messagesRef.current.length) {
+            setMessages(nextMsgs);
+          }
+        }
+      } catch {
+        // Silent background sync: do not disrupt active typing with transient network errors
+      } finally {
+        syncInFlightRef.current = false;
+      }
+    };
+
+    window.addEventListener('vectocore:sync', handleGlobalSync);
+    return () => window.removeEventListener('vectocore:sync', handleGlobalSync);
+  }, [refreshConversations]);
 
   useEffect(() => {
     let active = true;
@@ -208,6 +281,22 @@ export function Chatbot() {
       bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
     }
   }, [messages.length, sending]);
+
+  useEffect(() => {
+    if (!loading && !sending && activeId && messages.length > 0) {
+      const raf = requestAnimationFrame(() => {
+        if (streamScrollRef.current) {
+          streamScrollRef.current.scrollTo({
+            top: streamScrollRef.current.scrollHeight,
+            behavior: 'smooth',
+          });
+        } else {
+          bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [activeId, loading, messages.length]);
 
   const activeProvider = providers.find((item) => item.id === provider);
 
@@ -456,33 +545,45 @@ export function Chatbot() {
 
   const toggleSpeech = async (item: Message) => {
     if (playingId === item.id) {
-      if (!audioRef.current) return;
-      if (paused) {
-        await audioRef.current.play();
-        setPaused(false);
-      } else {
-        audioRef.current.pause();
-        setPaused(true);
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
       }
+      stopSpeech();
       return;
     }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
     stopSpeech();
-    setTtsLoadingId(item.id);
-    try {
-      const result = await ApiClient.post<TTSResponse>(`${API}/tts/synthesize`, { text: item.content.slice(0, 6000) });
-      const audio = new Audio(`data:${result.audio_mime_type};base64,${result.audio_base64}`);
-      audioRef.current = audio;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const cleanSpeechText = item.content
+        .slice(0, 6000)
+        .replace(/\[(\d+)\]\([^)]+\)/g, '')
+        .replace(/https?:\/\/\S+/g, '')
+        .replace(/[*_`#>~-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const utterance = new SpeechSynthesisUtterance(cleanSpeechText || item.content.slice(0, 6000));
+      const voices = window.speechSynthesis.getVoices();
+      const naturalVoice =
+        voices.find((v) => /aria/i.test(v.name) && /^en/i.test(v.lang)) ||
+        voices.find((v) => /neerja|jenny|female|zira|samantha|victoria|karen|moira|tessa/i.test(v.name) && /natural|online|google/i.test(v.name) && /^en/i.test(v.lang)) ||
+        voices.find((v) => /natural|online|google/i.test(v.name) && /^en/i.test(v.lang)) ||
+        voices.find((v) => /^en/i.test(v.lang));
+      if (naturalVoice) utterance.voice = naturalVoice;
+      utterance.volume = 1.0;
+      utterance.rate = 0.95;
+      utterance.pitch = 1.0;
       setPlayingId(item.id);
       setPaused(false);
-      audio.onended = () => {
+      utterance.onend = () => {
         setPlayingId(null);
         setPaused(false);
       };
-      await audio.play();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Text-to-speech is unavailable.');
-    } finally {
-      setTtsLoadingId(null);
+      window.speechSynthesis.speak(utterance);
+    } else {
+      setError('Text-to-speech is not supported in this browser.');
     }
   };
 
@@ -855,17 +956,6 @@ export function Chatbot() {
                             <Volume2 className="h-3.5 w-3.5" />
                           )}
                         </button>
-
-                        {playingId === item.id && (
-                          <button
-                            type="button"
-                            onClick={stopSpeech}
-                            title="Stop audio"
-                            className="rounded-lg p-1.5 text-rose-500 hover:bg-[var(--muted)]"
-                          >
-                            <Square className="h-3 w-3 fill-current" />
-                          </button>
-                        )}
                       </div>
                     )}
                   </div>

@@ -123,6 +123,9 @@ class TelemetryItemResponse(BaseModel):
     translation_latency_ms: int = 0
     error_type: Optional[str] = None
     error_message: Optional[str] = None
+    memory_context_tokens: int = 0
+    memory_summary_included: bool = False
+    memory_window_size: int = 0
     semantic_match_insights: Optional[SemanticMatchInsightsResponse] = None
     created_at: datetime
     model_config = {"from_attributes": True}
@@ -328,7 +331,12 @@ async def list_cache_entries(
     db: AsyncSession = Depends(get_db_session),
 ) -> CacheEntriesPaginatedResponse:
     """List semantic cache entries with search and filters."""
-    query = select(CacheEntry).where(CacheEntry.owner_id == user.id, CacheEntry.status == "active")
+    now = datetime.now(timezone.utc)
+    query = select(CacheEntry).where(
+        CacheEntry.owner_id == user.id,
+        CacheEntry.status == "active",
+        CacheEntry.expires_at > now,
+    )
 
     if search:
         search_filter = f"%{search.strip().lower()}%"
@@ -423,12 +431,16 @@ async def get_cache_stats(
     db: AsyncSession = Depends(get_db_session),
 ) -> CacheStatsResponse:
     """Get live cache telemetry, latency percentiles, and input/output token usage."""
+    now = datetime.now(timezone.utc)
     total_entries = (await db.scalar(
-        select(func.count()).select_from(CacheEntry).where(CacheEntry.owner_id == user.id, CacheEntry.status == "active")
+        select(func.count()).select_from(CacheEntry).where(
+            CacheEntry.owner_id == user.id,
+            CacheEntry.status == "active",
+            CacheEntry.expires_at > now,
+        )
     )) or 0
 
     telemetry_where: list[Any] = [CacheTelemetry.owner_id == user.id]
-    now = datetime.now(timezone.utc)
     if start_date:
         try:
             start_dt = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)

@@ -211,3 +211,42 @@ async def release_cache_lock(lock_key: str) -> None:
                 await _run_redis_op(lambda: client.delete(lock_key), timeout=0.25)
     except Exception:
         pass
+
+
+async def memory_cache_get(key: str) -> Optional[str]:
+    """Read serialized short-term memory window from Redis, failing open with a warning."""
+    try:
+        now = asyncio.get_running_loop().time()
+        if not _redis_available(now):
+            logger.warning("Short-term memory Redis read skipped (circuit open); falling back to PostgreSQL.")
+            return None
+        client = get_redis_client()
+        return await _run_redis_op(lambda: client.get(key), timeout=0.25)
+    except Exception as exc:
+        logger.warning("Short-term memory Redis read failed (%s); falling back to PostgreSQL.", type(exc).__name__)
+        return None
+
+
+async def memory_cache_set(key: str, value: str, ex_seconds: int) -> None:
+    """Write serialized short-term memory window to Redis with TTL, failing open with a warning."""
+    try:
+        now = asyncio.get_running_loop().time()
+        if not _redis_available(now):
+            logger.warning("Short-term memory Redis write skipped (circuit open).")
+            return
+        client = get_redis_client()
+        await _run_redis_op(lambda: client.set(key, value, ex=ex_seconds), timeout=0.25)
+    except Exception as exc:
+        logger.warning("Short-term memory Redis write failed (%s).", type(exc).__name__)
+
+
+async def memory_cache_delete(key: str) -> None:
+    """Invalidate a conversation's short-term memory key in Redis, failing open with a warning."""
+    try:
+        now = asyncio.get_running_loop().time()
+        if not _redis_available(now):
+            return
+        client = get_redis_client()
+        await _run_redis_op(lambda: client.delete(key), timeout=0.25)
+    except Exception as exc:
+        logger.warning("Short-term memory Redis delete failed (%s).", type(exc).__name__)

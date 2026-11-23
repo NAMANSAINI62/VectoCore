@@ -97,12 +97,12 @@ export default function CachePage() {
   }, [data?.items]);
 
   return (
-    <div className="space-y-5 pb-10">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1
-            className="text-xl font-bold tracking-tight flex items-center gap-2"
+            className="text-2xl font-medium tracking-tight flex items-center gap-2"
             style={{ color: 'var(--foreground)' }}
           >
             <Database className="w-5 h-5" style={{ color: 'var(--accent)' }} />
@@ -112,35 +112,17 @@ export default function CachePage() {
             Inspect, filter, and invalidate stored prompt-response vectors across languages and models.
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={handleRefresh}
-          disabled={isFetching || refreshSpin}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition active:scale-95 disabled:opacity-70 self-start sm:self-auto cursor-pointer"
-          style={{
-            backgroundColor: 'var(--card)',
-            borderColor: 'var(--border)',
-            color: 'var(--foreground)',
-          }}
-        >
-          <RefreshCw
-            className={`w-3.5 h-3.5 ${isFetching || refreshSpin ? 'animate-spin' : ''}`}
-            style={{ color: isFetching || refreshSpin ? 'var(--accent)' : undefined }}
-          />
-          {isFetching || refreshSpin ? 'Refreshing...' : 'Refresh'}
-        </button>
       </div>
 
       {/* 4-Column Summary KPI Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div
           className="rounded-xl border p-4 flex flex-col justify-between"
           style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               Stored Entries
@@ -148,7 +130,7 @@ export default function CachePage() {
             <Database className="w-4 h-4" style={{ color: 'var(--accent)' }} />
           </div>
           <div
-            className="text-2xl font-bold mt-2 tabular-nums"
+            className="text-2xl font-medium tracking-tight mt-2 tabular-nums"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
           >
             {isLoading ? '—' : (data?.total ?? 0).toLocaleString()}
@@ -164,7 +146,7 @@ export default function CachePage() {
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               Page Reuse Hits
@@ -172,7 +154,7 @@ export default function CachePage() {
             <Zap className="w-4 h-4" style={{ color: 'var(--hit-text)' }} />
           </div>
           <div
-            className="text-2xl font-bold mt-2 tabular-nums"
+            className="text-2xl font-medium tracking-tight mt-2 tabular-nums"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
           >
             {isLoading ? '—' : pageMetrics.hits.toLocaleString()}
@@ -188,7 +170,7 @@ export default function CachePage() {
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               Page Tokens Saved
@@ -196,7 +178,7 @@ export default function CachePage() {
             <Layers className="w-4 h-4" style={{ color: 'var(--accent)' }} />
           </div>
           <div
-            className="text-2xl font-bold mt-2 tabular-nums"
+            className="text-2xl font-medium tracking-tight mt-2 tabular-nums"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
           >
             {isLoading ? '—' : pageMetrics.saved.toLocaleString()}
@@ -212,7 +194,7 @@ export default function CachePage() {
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               Language Scope
@@ -220,7 +202,7 @@ export default function CachePage() {
             <Globe className="w-4 h-4" style={{ color: 'var(--accent)' }} />
           </div>
           <div
-            className="text-xl font-bold mt-2 truncate"
+            className="text-xl font-medium mt-2 truncate"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
           >
             {language ? getLanguageLabel(language) : 'All Languages'}
@@ -336,7 +318,7 @@ export default function CachePage() {
           <div className="custom-scrollbar max-h-[calc(100vh-370px)] min-h-[260px] overflow-y-auto overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead
-                className="sticky top-0 z-10 text-[11px] font-semibold uppercase tracking-wider border-b"
+                className="sticky top-0 z-10 text-xs font-medium border-b"
                 style={{
                   backgroundColor: 'var(--muted)',
                   color: 'var(--muted-foreground)',
@@ -414,7 +396,7 @@ export default function CachePage() {
                       <td className="px-3 py-3 whitespace-nowrap">
                         {entry.hit_count > 0 ? (
                           <span
-                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold tabular-nums"
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium tabular-nums"
                             style={{ backgroundColor: 'var(--hit-bg)', color: 'var(--hit-text)' }}
                           >
                             <Zap className="w-3 h-3" />
@@ -523,18 +505,18 @@ export default function CachePage() {
         <div className="fixed inset-0 flex items-center justify-center p-4 bg-black/45 backdrop-blur-xs">
           {selectedEntry && (
             <DialogPanel
-              className="border rounded-2xl shadow-2xl max-w-2xl w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto custom-scrollbar"
+              className="border rounded-2xl shadow-2xl max-w-2xl w-full p-4 sm:p-6 space-y-4 max-h-[85vh] overflow-y-auto custom-scrollbar"
               style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <span
-                    className="text-[11px] uppercase tracking-wider font-bold"
+                    className="text-xs font-medium"
                     style={{ color: 'var(--accent)' }}
                   >
                     Cache Entry Detail
                   </span>
-                  <h3 className="text-base font-bold mt-0.5" style={{ color: 'var(--foreground)' }}>
+                  <h3 className="text-base font-medium mt-0.5" style={{ color: 'var(--foreground)' }}>
                     {selectedEntry.query}
                   </h3>
                   <p
@@ -605,7 +587,7 @@ export default function CachePage() {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label
-                    className="text-[11px] font-semibold uppercase tracking-wider"
+                    className="text-xs font-medium"
                     style={{ color: 'var(--muted-foreground)' }}
                   >
                     Cached LLM Response
@@ -677,7 +659,7 @@ export default function CachePage() {
               style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
             >
               <div>
-                <h3 className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>
+                <h3 className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
                   Invalidate Cache Entry?
                 </h3>
                 <p className="text-xs mt-1" style={{ color: 'var(--muted-foreground)' }}>

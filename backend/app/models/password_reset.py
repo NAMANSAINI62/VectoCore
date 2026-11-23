@@ -46,4 +46,4 @@ class PasswordResetToken(Base):
     )
 
     # Relationships
-    user = relationship("User", back_populates="password_reset_tokens")
+    user = relationship("User")

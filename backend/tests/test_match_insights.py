@@ -15,7 +15,7 @@ from app.api.v1.endpoints.cache import SemanticMatchInsightsResponse, TelemetryI
 from app.cache import redis_client
 from app.models.cache import CacheEntry
 from app.services.cache_engine import SemanticCacheEngine, compute_config_hash
-from app.services.intent_validation_service import (
+from app.services.intent_service import (
     IntentCompatibilitySchema,
     IntentValidationResult,
     validate_candidate_intent,
@@ -231,7 +231,7 @@ async def test_group_d_and_e_structured_llm_validation_multilingual_and_instruct
         intent_summary="Advantages of Python (Hinglish/English)",
         reason="Both ask for the advantages/benefits of Python.",
     )
-    with patch("app.services.intent_validation_service.get_chat_model", return_value=mock_llm):
+    with patch("app.services.intent_service.get_chat_model", return_value=mock_llm):
         res_hi = await validate_candidate_intent(
             "What are the advantages of Python?",
             "Python ke kya fayde hain?",
@@ -249,7 +249,7 @@ async def test_group_d_and_e_structured_llm_validation_multilingual_and_instruct
         intent_summary="Format constraint mismatch",
         reason="Current query asks for 3 bullet points while cached query asks for a detailed essay.",
     )
-    with patch("app.services.intent_validation_service.get_chat_model", return_value=mock_llm):
+    with patch("app.services.intent_service.get_chat_model", return_value=mock_llm):
         res_instr = await validate_candidate_intent(
             "Explain Python in 3 bullet points",
             "Write a detailed essay on Python",
@@ -338,7 +338,7 @@ async def test_group_h_validator_failure_and_timeout_safe_fallback():
     mock_llm.bind.return_value = mock_llm
     mock_llm.with_structured_output.return_value = mock_structured
 
-    with patch("app.services.intent_validation_service.get_chat_model", return_value=mock_llm):
+    with patch("app.services.intent_service.get_chat_model", return_value=mock_llm):
         res_timeout = await validate_candidate_intent(
             "What are the advantages of Python?",
             "What are the benefits of Python?",
@@ -348,7 +348,7 @@ async def test_group_h_validator_failure_and_timeout_safe_fallback():
         )
     assert res_timeout.is_valid is False
 
-    with patch("app.services.intent_validation_service.get_chat_model", side_effect=RuntimeError("API down")):
+    with patch("app.services.intent_service.get_chat_model", side_effect=RuntimeError("API down")):
         res_err = await validate_candidate_intent(
             "What are the advantages of Python?",
             "What are the benefits of Python?",

@@ -134,12 +134,12 @@ export default function ModelsPage() {
   const loading = modelsLoading || statsLoading;
 
   return (
-    <div className="space-y-5 pb-10">
+    <div className="space-y-5">
       {/* Header & Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1
-            className="text-xl font-bold tracking-tight flex items-center gap-2"
+            className="text-2xl font-medium tracking-tight flex items-center gap-2"
             style={{ color: 'var(--foreground)' }}
           >
             <Cpu className="w-5 h-5" style={{ color: 'var(--accent)' }} />
@@ -176,35 +176,18 @@ export default function ModelsPage() {
               );
             })}
           </div>
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={isFetching || refreshSpin}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition active:scale-95 disabled:opacity-70 cursor-pointer"
-            style={{
-              backgroundColor: 'var(--card)',
-              borderColor: 'var(--border)',
-              color: 'var(--foreground)',
-            }}
-          >
-            <RefreshCw
-              className={`w-3.5 h-3.5 ${isFetching || refreshSpin ? 'animate-spin' : ''}`}
-              style={{ color: isFetching || refreshSpin ? 'var(--accent)' : undefined }}
-            />
-            {isFetching || refreshSpin ? 'Refreshing...' : 'Refresh'}
-          </button>
         </div>
       </div>
 
       {/* Balanced 4-Column KPI Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div
           className="rounded-xl border p-4 flex flex-col justify-between"
           style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               Configured Models
@@ -212,7 +195,7 @@ export default function ModelsPage() {
             <Cpu className="w-4 h-4" style={{ color: 'var(--accent)' }} />
           </div>
           <div
-            className="text-2xl font-bold mt-2 tabular-nums"
+            className="text-2xl font-medium tracking-tight mt-2 tabular-nums"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
           >
             {loading ? '—' : models.length}
@@ -228,7 +211,7 @@ export default function ModelsPage() {
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               Total Requests
@@ -236,7 +219,7 @@ export default function ModelsPage() {
             <Activity className="w-4 h-4" style={{ color: 'var(--accent)' }} />
           </div>
           <div
-            className="text-2xl font-bold mt-2 tabular-nums"
+            className="text-2xl font-medium tracking-tight mt-2 tabular-nums"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
           >
             {loading ? '—' : (stats?.total_requests ?? 0).toLocaleString()}
@@ -252,7 +235,7 @@ export default function ModelsPage() {
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               Most Used Model
@@ -260,7 +243,7 @@ export default function ModelsPage() {
             <Zap className="w-4 h-4" style={{ color: 'var(--accent)' }} />
           </div>
           <div
-            className="text-lg font-bold mt-2 truncate"
+            className="text-lg font-medium mt-2 truncate"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
             title={mostUsedModel}
           >
@@ -277,7 +260,7 @@ export default function ModelsPage() {
         >
           <div className="flex items-center justify-between">
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
+              className="text-xs font-medium"
               style={{ color: 'var(--muted-foreground)' }}
             >
               Tokens Consumed
@@ -285,7 +268,7 @@ export default function ModelsPage() {
             <Link2 className="w-4 h-4" style={{ color: 'var(--accent)' }} />
           </div>
           <div
-            className="text-2xl font-bold mt-2 tabular-nums"
+            className="text-2xl font-medium tracking-tight mt-2 tabular-nums"
             style={{ color: 'var(--stat-number, var(--foreground))' }}
           >
             {loading ? '—' : totalTokensConsumed.toLocaleString()}
@@ -319,7 +302,7 @@ export default function ModelsPage() {
         >
           <div className="flex items-center gap-3 flex-1">
             <h2
-              className="text-sm font-bold flex items-center gap-2 shrink-0"
+              className="text-sm font-medium flex items-center gap-2 shrink-0"
               style={{ color: 'var(--foreground)' }}
             >
               <Sparkles className="w-4 h-4" style={{ color: 'var(--accent)' }} />
@@ -385,7 +368,7 @@ export default function ModelsPage() {
           <div className="custom-scrollbar max-h-[360px] overflow-y-auto overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead
-                className="sticky top-0 z-10 text-[11px] font-semibold uppercase tracking-wider border-b"
+                className="sticky top-0 z-10 text-xs font-medium border-b"
                 style={{
                   backgroundColor: 'var(--muted)',
                   color: 'var(--muted-foreground)',

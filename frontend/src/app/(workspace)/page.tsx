@@ -27,18 +27,26 @@ export default function OverviewPage() {
       {/* 6 Core KPI Cards */}
       <DashboardKpiGrid stats={stats} isLoading={isLoading} />
 
-      {/* Row 1: Cache Hit Distribution (Donut) + Latency Comparison (Grouped Bar) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <CacheDistributionChart
-          exactHits={stats?.exact_hits ?? 0}
-          semanticHits={stats?.semantic_hits ?? 0}
-          misses={stats?.cache_misses ?? 0}
-          totalRequests={stats?.total_requests ?? 0}
-          hitRatePct={stats?.hit_rate_pct}
-          isLoading={isLoading}
-          isError={isError}
-        />
+      {/* Row 1: Primary Timeline (7 cols) + Hit Distribution Donut (5 cols) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div className="lg:col-span-7">
+          <CacheTrendChart trends={trends} isLoading={isLoading} isError={isError} />
+        </div>
+        <div className="lg:col-span-5">
+          <CacheDistributionChart
+            exactHits={stats?.exact_hits ?? 0}
+            semanticHits={stats?.semantic_hits ?? 0}
+            misses={stats?.cache_misses ?? 0}
+            totalRequests={stats?.total_requests ?? 0}
+            hitRatePct={stats?.hit_rate_pct}
+            isLoading={isLoading}
+            isError={isError}
+          />
+        </div>
+      </div>
 
+      {/* Row 2: Latency Comparison + Token Savings Over Time */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <LatencyComparisonChart
           avgExactHitLatencyMs={stats?.avg_exact_hit_latency_ms ?? 0}
           avgSemanticHitLatencyMs={stats?.avg_semantic_hit_latency_ms}
@@ -49,11 +57,6 @@ export default function OverviewPage() {
           isLoading={isLoading}
           isError={isError}
         />
-      </div>
-
-      {/* Row 2: Daily Hit/Miss Trend (Stacked Bar) + Token Savings Over Time (Stacked Area) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <CacheTrendChart trends={trends} isLoading={isLoading} isError={isError} />
 
         <TokenSavingsChart
           trends={trends}

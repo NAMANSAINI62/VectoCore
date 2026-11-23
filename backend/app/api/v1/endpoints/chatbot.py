@@ -20,11 +20,6 @@ from app.guardrails.rate_limiter import RedisRateLimiter
 from app.guardrails.schemas import Decision
 from app.guardrails.service import get_guardrails_service
 from app.llm.registry import available_models, provider_options, validate_provider_model
-from app.ai.gemini_media_service import (
-    run_live_gemini_session,
-    synthesize_speech_with_fallback,
-    transcribe_audio_with_gemini,
-)
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.user import User
 from app.services.cache_engine import SemanticCacheEngine
@@ -169,82 +164,6 @@ async def get_models(_: User = Depends(get_current_user)) -> list[ModelResponse]
     return [ModelResponse(id=item.id, name=item.name, provider=item.provider, tier=item.tier) for item in available_models()]
 
 
-@router.post("/tts/synthesize", response_model=TextToSpeechResponse)
-async def synthesize_chat_audio(
-    payload: TextToSpeechRequest,
-    _: User = Depends(get_current_user),
-) -> TextToSpeechResponse:
-    audio_base64, audio_mime_type = await synthesize_speech_with_fallback(payload.text)
-    return TextToSpeechResponse(audio_base64=audio_base64, audio_mime_type=audio_mime_type)
-
-
-@router.post("/audio/transcribe", response_model=AudioTranscribeResponse)
-async def transcribe_chat_audio(
-    file: UploadFile = File(...),
-    target_language: str | None = Form(default=None),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session),
-) -> AudioTranscribeResponse:
-    raw = await file.read()
-    if len(raw) > 20 * 1024 * 1024:
-        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Audio file exceeds 20 MB limit.")
-    transcript, used_model = await transcribe_audio_with_gemini(
-        raw,
-        mime_type=file.content_type or "audio/wav",
-        target_language=target_language,
-    )
-    verdict = await get_guardrails_service().check_input(
-        transcript,
-        user_id=user.id,
-        db=db,
-    )
-    await db.commit()
-    if verdict.effective_decision in (Decision.BLOCK, Decision.FALLBACK, Decision.REQUIRE_REVIEW):
-        safe_transcript = verdict.user_safe_message or "I can't process that request."
-    elif verdict.effective_decision == Decision.REDACT and verdict.redacted_content is not None:
-        safe_transcript = verdict.redacted_content
-    else:
-        safe_transcript = verdict.redacted_content or transcript
-    return AudioTranscribeResponse(transcript=safe_transcript, model=used_model, target_language=target_language)
-
-
-@router.post("/live/session", response_model=LiveConnectResponse)
-async def gemini_live_session(
-    payload: LiveConnectRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session),
-) -> LiveConnectResponse:
-    verdict = await get_guardrails_service().check_input(
-        payload.prompt,
-        user_id=user.id,
-        db=db,
-    )
-    await db.commit()
-    if verdict.effective_decision in (Decision.BLOCK, Decision.FALLBACK, Decision.REQUIRE_REVIEW):
-        return LiveConnectResponse(
-            text=verdict.user_safe_message or "I cannot fulfill this request due to safety guidelines.",
-            thoughts=None,
-            model=payload.model,
-            mode=payload.mode,
-            target_language=payload.target_language,
-        )
-    effective_prompt = verdict.redacted_content or payload.prompt
-    text, thoughts, used_model = await run_live_gemini_session(
-        effective_prompt,
-        mode=payload.mode,
-        target_language=payload.target_language,
-        model=payload.model,
-        thinking_budget=payload.thinking_budget,
-    )
-    return LiveConnectResponse(
-        text=text,
-        thoughts=thoughts,
-        model=used_model,
-        mode=payload.mode,
-        target_language=payload.target_language,
-    )
-
-
 @router.post("/conversations", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     payload: ConversationCreate,
@@ -329,6 +248,8 @@ async def delete_conversation(
     conversation = await _owned_conversation(db, user, conversation_id)
     await db.delete(conversation)
     await db.commit()
+    from app.services.memory_service import invalidate_conversation_memory
+    await invalidate_conversation_memory(user.id, conversation_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -392,7 +313,7 @@ async def chat_completion(
                     "response.complete",
                     {
                         "conversation_id": conv_val,
-                        "message_id": "",
+                        "message_id": f"blocked-{uuid.uuid4()}",
                         "provider": payload.provider,
                         "model": payload.model,
                         "switched_from": None,

@@ -77,6 +77,18 @@ class Settings(BaseSettings):
     CHAT_CONTEXT_MESSAGES: int = 24
     CHAT_CONTEXT_MAX_CHARS: int = 24000
 
+    # Short-Term Conversation Memory (within the active conversation only)
+    MEMORY_ENABLED: bool = True
+    MEMORY_MAX_CONTEXT_TOKENS: int = 2000
+    MEMORY_SUMMARY_MAX_TOKENS: int = 350
+    MEMORY_SUMMARY_TRIGGER_MESSAGES: int = 6
+    MEMORY_REDIS_TTL_SECONDS: int = 3600
+    MEMORY_SUMMARY_MODEL: str = "gemini-3.1-flash-lite"
+
+    # Model Context Protocol (MCP) Client
+    MCP_ENABLED: bool = False
+    MCP_SERVERS_CONFIG_PATH: str = ""
+
     # JWT Authentication & Security
     JWT_SECRET_KEY: str = "super_secure_jwt_secret_key_change_in_production_min_32_characters"
     JWT_ALGORITHM: str = "HS256"
@@ -88,6 +100,24 @@ class Settings(BaseSettings):
 
     # Frontend URL
     FRONTEND_URL: str = "http://localhost:4317"
+
+    # Google OAuth 2.0
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:4317/api/v1/auth/google/callback"
+
+    # SMTP & Passwordless Email OTP
+    RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = ""
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_USE_TLS: bool = True
+    EMAIL_OTP_EXPIRE_MINUTES: int = 5
+    EMAIL_OTP_MAX_ATTEMPTS: int = 5
+    EMAIL_OTP_RESEND_COOLDOWN_SECONDS: int = 30
 
     # CORS
     CORS_ORIGINS: Annotated[list[str], NoDecode] = [

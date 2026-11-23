@@ -272,8 +272,8 @@ Evidence
 - `backend/app/dependencies/auth.py:14-61`
 - `backend/app/repositories/user_repository.py:9-54`
 - `backend/app/repositories/session_repository.py:10-66`
-- `backend/app/services/password_reset_service.py:17-77`
-- `backend/app/repositories/password_reset_repository.py:10-53`
+- `backend/app/services/reset_service.py:17-77`
+- `backend/app/repositories/reset_token_repo.py:10-53`
 - `frontend/src/app/login/page.tsx:1-5`
 - `frontend/src/app/register/page.tsx:1-5`
 - `backend/app/models/user.py:11-67`

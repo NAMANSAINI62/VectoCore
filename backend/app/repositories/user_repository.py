@@ -24,14 +24,45 @@ class UserRepository:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_google_sub(self, google_sub: str) -> User | None:
+        """Fetch user by Google OAuth subject identifier."""
+        stmt = select(User).where(User.google_sub == google_sub)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def create(self, full_name: str, email: str, password_hash: str) -> User:
-        """Insert new user record into database."""
+        """Insert new local user record into database."""
         user = User(
             full_name=full_name.strip(),
             email=email.strip().lower(),
             password_hash=password_hash,
+            auth_provider="local",
             is_active=True,
             is_verified=False,
+        )
+        self.db.add(user)
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user
+
+    async def create_passwordless(
+        self,
+        *,
+        full_name: str,
+        email: str,
+        auth_provider: str,
+        google_sub: str | None = None,
+        is_verified: bool = True,
+    ) -> User:
+        """Insert a passwordless user authenticated via Google OAuth or Email OTP."""
+        user = User(
+            full_name=full_name.strip()[:150] or email.split("@")[0],
+            email=email.strip().lower(),
+            password_hash=None,
+            auth_provider=auth_provider,
+            google_sub=google_sub,
+            is_active=True,
+            is_verified=is_verified,
         )
         self.db.add(user)
         await self.db.commit()

@@ -72,6 +72,29 @@ def get_model_label(model_id: str) -> str:
     return _MODEL_LABELS.get(model_id, model_id)
 
 
+# Per-model short-term memory context token budgets (falls back to settings.MEMORY_MAX_CONTEXT_TOKENS)
+_MODEL_MEMORY_TOKEN_BUDGETS: dict[str, int] = {
+    "gemini-3.8-flash": 8000,
+    "gemini-3-flash-preview": 8000,
+    "gemini-3.5-flash-lite": 6000,
+    "gemini-3.1-flash-lite": 4000,
+    "gemini-3.1-flash-lite-preview": 4000,
+    "gemini-flash-lite-latest": 4000,
+    "gemma-4-31b-it": 4000,
+    "openai/gpt-oss-120b": 4000,
+    "openai/gpt-oss-20b": 3000,
+    "command-a-03-2025": 6000,
+    "nvidia/nemotron-3.5-super-vl-120b-a12b": 6000,
+    "nvidia/nemotron-3.5-bolt-e4b": 3000,
+}
+
+
+def get_model_memory_token_budget(model_id: str) -> int:
+    """Return the per-model short-term memory token budget, bounded by MEMORY_MAX_CONTEXT_TOKENS."""
+    per_model = _MODEL_MEMORY_TOKEN_BUDGETS.get(model_id, settings.MEMORY_MAX_CONTEXT_TOKENS)
+    return min(per_model, settings.MEMORY_MAX_CONTEXT_TOKENS)
+
+
 # Free-tier safety budgets per model (soft pre-switch threshold triggers before hitting 429)
 @dataclass(frozen=True)
 class ModelQuotaPolicy:

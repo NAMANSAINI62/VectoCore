@@ -177,7 +177,14 @@ class SecretScannerDetector:
                         # keep all format-specific detectors and high-entropy matches on assignment/key contexts
                         sec_type = secret.type
                         if sec_type in ("Base64 High Entropy String", "Hex High Entropy String"):
-                            if any(k in line.lower() for k in ("key", "token", "secret", "password", "bearer", "auth")):
+                            val = getattr(secret, "secret_value", "") or ""
+                            if val.startswith(("http://", "https://")):
+                                continue
+                            if re.search(
+                                r"(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|password|passwd|secret|bearer|authorization)\s*(?:[:=]\s*|\s+Bearer\s+)\S+",
+                                line,
+                                re.IGNORECASE,
+                            ):
                                 categories.add("high_entropy_secret")
                         else:
                             categories.add(f"detect_secrets:{sec_type.lower().replace(' ', '_')}")
