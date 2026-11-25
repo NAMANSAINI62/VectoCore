@@ -308,7 +308,7 @@ export function Chatbot() {
       });
       return () => cancelAnimationFrame(raf);
     }
-  }, [activeId, loading, messages.length]);
+  }, [activeId, loading, messages.length, sending]);
 
   const activeProvider = providers.find((item) => item.id === provider);
 
