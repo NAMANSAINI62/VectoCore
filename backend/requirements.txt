@@ -37,3 +37,5 @@ en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_
 detect-secrets==1.5.0
 pytest-asyncio==1.5.0
 python-multipart==0.0.34
+mcp>=1.0.0
+beautifulsoup4>=4.12.0
