@@ -31,11 +31,6 @@ from app.llm.registry import (
 )
 from app.models.chat import ChatConversation, ChatMessage
 from app.services.cache_engine import SemanticCacheEngine, is_context_dependent_followup
-from app.services.memory_service import (
-    build_context,
-    invalidate_conversation_memory,
-    schedule_summary_refresh,
-)
 from app.services.token_service import count_tokens
 from app.services.intent_service import (
     _invoke_structured_with_fallback,
@@ -49,24 +44,19 @@ from app.services.language_service import (
 settings = get_settings()
 
 SYSTEM_PROMPT = (
-    "You are a helpful, clear, and honest assistant. Use prior conversation messages when relevant. "
+    "You are a helpful, clear, and honest assistant. Use prior conversation messages when relevant, "
+    "including follow-up questions (e.g., if the user previously asked about advantages and now asks 'what about disadvantages?', answer directly). "
     "Do not claim to have used tools or sources you did not use. "
     "When tool outputs provide source URLs, ground your answer in those results and place clickable inline markdown links "
     "like [[1]](https://exact-url) or [[2]](https://exact-url) directly on the sentence where the fact is used. "
     "Do NOT add a separate Sources section at the bottom.\n\n"
     "RESPONSE SCOPE & LENGTH POLICY:\n"
-    "- Answer strictly what the user asked in their query and stay directly focused on the exact requested topic or aspect.\n"
-    "- Do NOT add unrequested information, extra background, filler introductions, closing fluff, or opposite/unrelated aspects "
-    "(for example, if the user asks for the advantages of X, provide only the advantages — do not add disadvantages, alternatives, or extra sections).\n"
-    "- Keep responses concise, direct, and appropriately brief by default. Do not generate overly long responses.\n"
-    "- Only provide long, in-depth, or exhaustive explanations when the user explicitly requests detailed/in-depth coverage "
-    "(e.g., 'in detail', 'comprehensive', 'deep dive', 'step by step in detail'), and still stay strictly within what was asked.\n\n"
+    "- Answer what the user asked in their current query (using prior conversation context when it is a follow-up).\n"
+    "- Keep responses concise, direct, and appropriately brief by default. Do not add filler introductions, closing fluff, or meta-commentary about your instructions or language policy.\n"
+    "- Only provide long, in-depth explanations when the user explicitly requests detailed coverage "
+    "(e.g., 'in detail', 'comprehensive', 'deep dive', 'step by step in detail').\n\n"
     "RESPONSE LANGUAGE POLICY:\n"
-    "- Default response language is English.\n"
-    "- Do NOT change the response language merely because the user's question is written in another language "
-    "(e.g., Hindi, Hinglish, Urdu, Japanese, Chinese, Spanish, French, German, Arabic, Portuguese, Korean, Russian, Italian).\n"
-    "- Only respond in another language (or bilingual combination) when the user explicitly requests that language.\n"
-    "- Always write the final answer strictly in: {effective_response_language}."
+    "- Write the final answer in {effective_response_language} without announcing or explaining the language policy."
 )
 
 PROMPT = ChatPromptTemplate.from_messages(
@@ -190,7 +180,9 @@ def _lookup_lang_fields(lookup: Any) -> dict[str, Any]:
 
 
 _LIVE_SEARCH_INTENT_RE = re.compile(
-    r"\b(latest|current|currently|today|right now|recent|news|search|look\s*up|google|browse|"
+    r"\b(latest|current|currently|today|right now|recent|news|search|look\s*up|google|browse|live|"
+    r"aaj|abhi|mausam|weather|forecast|temperature|price|rate|bitcoin|btc|eth|crypto|stock|score|match|"
+    r"restaurants?|near\s+me|nearby|ke\s+paas|"
     r"documenta\w*|documen\w*|docs|official\s+(?:site|website|page|docs)|website|web\s*site|web\s*page|"
     r"check\s+(?:the\s+)?(?:\w+\s+){0,3}(?:site|website|docs|documentation|page))\b",
     re.IGNORECASE,
@@ -309,6 +301,79 @@ async def check_cache(state: ChatState) -> dict[str, Any]:
                 is_followup = is_context_dependent_followup(state["message"])
 
             if is_followup:
+                # Check if this exact follow-up prompt was already answered earlier in the same conversation
+                norm_msg = " ".join(state["message"].strip().lower().split())
+                conv_msgs = (
+                    await db.scalars(
+                        select(ChatMessage)
+                        .where(
+                            ChatMessage.conversation_id == state["conversation_id"],
+                            ChatMessage.owner_id == user_id,
+                            ChatMessage.id != state["user_message_id"],
+                            ChatMessage.status == "completed",
+                        )
+                        .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
+                    )
+                ).all()
+                matched_reply: str | None = None
+                for idx, cm in enumerate(conv_msgs):
+                    if (
+                        cm.role == "user"
+                        and " ".join((cm.content or "").strip().lower().split()) == norm_msg
+                    ):
+                        # Find the subsequent assistant reply in this conversation
+                        for nxt in conv_msgs[idx + 1 :]:
+                            if nxt.role == "assistant" and nxt.content:
+                                matched_reply = nxt.content
+                                break
+                            if nxt.role == "user":
+                                break
+                if matched_reply:
+                    in_tok = count_tokens(state["message"])
+                    out_tok = count_tokens(matched_reply)
+                    saved_tokens = in_tok + out_tok
+                    engine = SemanticCacheEngine(db, user_id)
+                    elapsed_ms = max(1, int((time.perf_counter() - state["started_at"]) * 1000))
+                    _emit_cache_telemetry(
+                        writer,
+                        hit=True,
+                        cache_type="exact_hit",
+                        cache_source="Conversation Exact Cache",
+                        similarity_score=1.0,
+                        lookup_latency_ms=1,
+                        saved_tokens=saved_tokens,
+                        extra=base_lang_state,
+                    )
+                    writer({"event": "content.delta", "data": matched_reply})
+                    await engine.record_telemetry(
+                        query=state["message"],
+                        cache_status="exact_hit",
+                        provider=state["provider"],
+                        model=state["model"],
+                        input_tokens=in_tok,
+                        output_tokens=out_tok,
+                        lookup_latency_ms=1,
+                        total_latency_ms=elapsed_ms,
+                        conversation_id=state["conversation_id"],
+                        similarity_score=1.0,
+                        detected_language=resolution.effective_response_language,
+                        requested_language=resolution.effective_response_language,
+                        response_preview=matched_reply,
+                        current_query=state["message"],
+                    )
+                    return {
+                        "is_cached": True,
+                        "raw_answer": matched_reply,
+                        "output_blocked": False,
+                        "cache_lookup": None,
+                        "language_valid": True,
+                        "usage": {
+                            "input_tokens": in_tok,
+                            "output_tokens": out_tok,
+                        },
+                        **base_lang_state,
+                    }
+
                 _emit_cache_telemetry(
                     writer,
                     hit=False,
@@ -422,24 +487,25 @@ def route_after_cache(state: ChatState) -> str:
 
 
 async def prepare_context(state: ChatState) -> dict[str, Any]:
-    """Assemble short-term conversation memory via the single memory_service entry point."""
-    ctx = await build_context(
-        state["db"],
-        state["user_id"],
-        state["conversation_id"],
-        state["message"],
-        state["model"],
-        exclude_message_id=state["user_message_id"],
-        system_prompt_tokens=count_tokens(SYSTEM_PROMPT),
+    """Load recent conversation turns directly from PostgreSQL without rolling summaries."""
+    db: AsyncSession = state["db"]
+    stmt = (
+        select(ChatMessage)
+        .where(
+            ChatMessage.conversation_id == state["conversation_id"],
+            ChatMessage.owner_id == state["user_id"],
+            ChatMessage.id != state["user_message_id"],
+            ChatMessage.status == "completed",
+        )
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+        .limit(settings.CHAT_CONTEXT_MESSAGES)
     )
-    return {
-        "history": ctx.messages,
-        "memory_context_tokens": ctx.context_tokens,
-        "memory_summary_included": ctx.summary_included,
-        "memory_window_size": ctx.window_size,
-        "memory_dropped_messages": ctx.dropped_messages,
-        "memory_used": bool(ctx.messages),
-    }
+    rows = list(reversed((await db.scalars(stmt)).all()))
+    messages: list[BaseMessage] = [
+        HumanMessage(content=r.content) if r.role == "user" else AIMessage(content=r.content)
+        for r in rows
+    ]
+    return {"history": messages}
 
 
 async def select_prompt_configuration(_: ChatState) -> dict[str, Any]:
@@ -504,14 +570,20 @@ async def tools_stage(state: ChatState) -> dict[str, Any]:
                 except Exception:
                     pass
             results.append(f"[{name} unavailable]: {type(exc).__name__}")
+    from datetime import datetime, timezone
+
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     history = list(state.get("history", []))
     history.append(
         SystemMessage(
             content=(
-                "[LIVE MCP TOOL RESULTS — ALREADY FETCHED FOR YOU]\n"
+                f"[LIVE MCP TOOL RESULTS — ALREADY FETCHED FOR YOU | Current Time: {now_utc}]\n"
                 "The following live web/tool content was just retrieved by VectoCore MCP tools for the user's request.\n"
-                "Answer the user's question directly using this retrieved content and cite the source URLs.\n"
-                "Do NOT claim you cannot browse the web or fetch external URLs — the content is already provided below.\n\n"
+                "STRICT GROUNDING RULES:\n"
+                "1. Prefer the most authoritative, most recent verified source (Result #1). If Result #1 does not contain the needed data, fall back to Result #2, and then Result #3 — never mix contradictory numbers across sites.\n"
+                "2. Check dates carefully: if retrieved data is from a previous trading day or the market is closed today, state that explicitly.\n"
+                "3. Never fabricate or mix conflicting figures across sources, and cite the verified source URL(s) inline.\n"
+                "4. Do NOT claim you cannot browse the web or fetch external URLs — the content is already provided below.\n\n"
                 + "\n".join(results)
             )
         )
@@ -797,10 +869,8 @@ async def persist_response(state: ChatState) -> dict[str, Any]:
     await db.commit()
     await db.refresh(assistant_message)
     assistant_msg_id = assistant_message.id
-    await invalidate_conversation_memory(state["user_id"], state["conversation_id"])
 
-    # If this was a cache miss, store into cache engine only when response language validation passed
-    # and the answer was not conditioned on conversation memory unless proven context-independent.
+    # If this was a cache miss, store into cache engine only when response language validation passed.
     if not state.get("is_cached", False):
         bind = getattr(db, "bind", None)
         if bind and getattr(bind, "dialect", None) and bind.dialect.name != "postgresql":
@@ -820,7 +890,7 @@ async def persist_response(state: ChatState) -> dict[str, Any]:
                 and state.get("language_valid", True)
                 and not state.get("skip_cache", False)
                 and not _REFUSAL_RE.search(state.get("answer", "") or "")
-                and (not state.get("memory_used", False) or state.get("proven_context_independent", False))
+                and (not bool(state.get("history")) or state.get("proven_context_independent", False))
             )
 
             if allow_global_cache_write:
@@ -860,9 +930,6 @@ async def persist_response(state: ChatState) -> dict[str, Any]:
                 current_query=state["message"],
                 rejected_candidates_snapshot=lookup.rejected_candidates_snapshot if lookup else None,
                 validation_explanation=lookup.validation_explanation if lookup else None,
-                memory_context_tokens=int(state.get("memory_context_tokens", 0)),
-                memory_summary_included=bool(state.get("memory_summary_included", False)),
-                memory_window_size=int(state.get("memory_window_size", 0)),
             )
         except Exception:
             try:
@@ -870,11 +937,6 @@ async def persist_response(state: ChatState) -> dict[str, Any]:
             except Exception:
                 pass
 
-    schedule_summary_refresh(
-        state["user_id"],
-        state["conversation_id"],
-        state.get("memory_dropped_messages") or [],
-    )
     return {"assistant_message_id": assistant_msg_id, "latency_ms": elapsed_ms}
 
 

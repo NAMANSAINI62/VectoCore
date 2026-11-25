@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Protocol
 
 import httpx
@@ -11,9 +12,13 @@ from mcp.server.mcpserver import MCPServer
 
 mcp = MCPServer("search")
 
-_MAX_RESULTS = 5
+_MAX_RESULTS = 3
 _MAX_QUERY_CHARS = 200
 _TIMEOUT_SEC = 8.0
+_NEWS_QUERY_RE = re.compile(
+    r"\b(today|aaj|abhi|latest|news|market|stock|nifty|sensex|price|weather|mausam|live|score)\b",
+    re.IGNORECASE,
+)
 
 
 class SearchProvider(Protocol):
@@ -29,20 +34,32 @@ class TavilySearchProvider:
     async def search(self, query: str, max_results: int = _MAX_RESULTS) -> list[dict[str, str]]:
         if not self._api_key:
             raise RuntimeError("Search provider UNAVAILABLE: missing TAVILY_API_KEY.")
+        payload: dict[str, Any] = {
+            "api_key": self._api_key,
+            "query": query,
+            "max_results": max_results,
+            "search_depth": "advanced",
+        }
+        if _NEWS_QUERY_RE.search(query):
+            payload["topic"] = "news"
+            payload["days"] = 2
         async with httpx.AsyncClient(timeout=_TIMEOUT_SEC) as client:
             resp = await client.post(
                 "https://api.tavily.com/search",
-                json={"api_key": self._api_key, "query": query, "max_results": max_results},
+                json=payload,
             )
             resp.raise_for_status()
             data = resp.json()
         results: list[dict[str, str]] = []
         for item in (data.get("results") or [])[:max_results]:
-            results.append({
+            entry: dict[str, str] = {
                 "title": str(item.get("title", ""))[:120],
                 "url": str(item.get("url", "")),
                 "snippet": str(item.get("content", ""))[:300],
-            })
+            }
+            if item.get("published_date"):
+                entry["published_date"] = str(item["published_date"])
+            results.append(entry)
         return results
 
 

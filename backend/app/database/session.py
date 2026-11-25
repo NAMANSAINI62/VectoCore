@@ -16,6 +16,13 @@ from app.config.settings import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+_db_url_lower = (settings.DATABASE_URL or "").lower()
+_connect_args: dict[str, object] = (
+    {"statement_cache_size": 0, "ssl": "require"}
+    if ("supabase.co" in _db_url_lower or "supabase.com" in _db_url_lower)
+    else {}
+)
+
 engine: AsyncEngine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
@@ -24,6 +31,7 @@ engine: AsyncEngine = create_async_engine(
     pool_timeout=settings.DB_POOL_TIMEOUT,
     pool_recycle=settings.DB_POOL_RECYCLE,
     pool_pre_ping=True,
+    connect_args=_connect_args,
 )
 
 async_session_factory = async_sessionmaker(

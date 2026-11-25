@@ -87,9 +87,6 @@ export interface TelemetryItem {
   related_candidates?: RelatedCacheMatchItem[] | null;
   error_type?: string | null;
   error_message?: string | null;
-  memory_context_tokens?: number;
-  memory_summary_included?: boolean;
-  memory_window_size?: number;
   semantic_match_insights?: SemanticMatchInsights | null;
   created_at: string;
 }
@@ -129,6 +126,7 @@ export interface CacheStatsResponse {
   model_usage?: ModelUsageStat[];
   latency_buckets?: LatencyBucketStat[];
   embedding_model_info?: EmbeddingModelInfo | null;
+  first_request_date?: string | null;
 }
 
 export interface DailyTrendPoint {
@@ -276,6 +274,14 @@ export const cacheApi = createApi({
       }),
       invalidatesTags: ['CacheEntries', 'CacheStats'],
     }),
+
+    clearCacheEntries: builder.mutation<{ deleted: number }, void>({
+      query: () => ({
+        url: 'cache/entries',
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['CacheEntries', 'CacheStats'],
+    }),
   }),
 });
 
@@ -289,4 +295,5 @@ export const {
   useGetCacheSettingsQuery,
   useUpdateCacheSettingsMutation,
   useDeleteCacheEntryMutation,
+  useClearCacheEntriesMutation,
 } = cacheApi;

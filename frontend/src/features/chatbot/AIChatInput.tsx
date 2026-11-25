@@ -12,6 +12,7 @@ import {
   ArrowUp,
   ChevronDown,
   LoaderCircle,
+  Mic,
   Sparkles,
   Square,
   Zap,
@@ -50,9 +51,229 @@ export function AIChatInput({
 }: AIChatInputProps) {
   const [draft, setDraft] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const recognitionRef = useRef<{ stop: () => void; abort: () => void } | null>(null);
+  const baseDraftRef = useRef('');
+  const liveTranscriptRef = useRef('');
+  const polishedSessionRef = useRef(false);
+
+  const polishLiveTranscript = async (rawText: string) => {
+    const cleanedRaw = rawText.trim();
+    if (!cleanedRaw || polishedSessionRef.current) return;
+    polishedSessionRef.current = true;
+    setTranscribing(true);
+    try {
+      const polishRes = await fetch('/api/v1/chat/voice-polish', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: cleanedRaw }),
+      });
+      if (polishRes.ok) {
+        const data = (await polishRes.json()) as { polished_text?: string };
+        const cleaned = (data.polished_text ?? '').trim();
+        if (cleaned) {
+          const base = baseDraftRef.current;
+          setDraft(base ? `${base} ${cleaned}` : cleaned);
+        }
+      }
+    } catch {
+      // Keep raw live transcript if polish fails
+    } finally {
+      setTranscribing(false);
+      textareaRef.current?.focus();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.abort();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, []);
+
+  const handleToggleRecording = async () => {
+    setVoiceError(null);
+    if (recording) {
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      setRecording(false);
+      if (liveTranscriptRef.current.trim()) {
+        void polishLiveTranscript(liveTranscriptRef.current);
+      }
+      return;
+    }
+
+    baseDraftRef.current = draft.trim();
+    liveTranscriptRef.current = '';
+    polishedSessionRef.current = false;
+
+    // 1. Start live word-by-word browser speech recognition when supported
+    const SpeechRecognitionCtor =
+      typeof window !== 'undefined'
+        ? ((window as unknown as { SpeechRecognition?: new () => unknown; webkitSpeechRecognition?: new () => unknown })
+            .SpeechRecognition ??
+            (window as unknown as { webkitSpeechRecognition?: new () => unknown }).webkitSpeechRecognition)
+        : undefined;
+
+    let startedLiveRecognition = false;
+    if (SpeechRecognitionCtor) {
+      try {
+        const recognition = new SpeechRecognitionCtor() as {
+          continuous: boolean;
+          interimResults: boolean;
+          lang: string;
+          onresult: ((ev: {
+            results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }>;
+          }) => void) | null;
+          onerror: ((ev: { error?: string }) => void) | null;
+          onend: (() => void) | null;
+          start: () => void;
+          stop: () => void;
+          abort: () => void;
+        };
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-IN';
+
+        recognition.onresult = (event) => {
+          let finalText = '';
+          let interimText = '';
+          for (let i = 0; i < event.results.length; i += 1) {
+            const result = event.results[i];
+            const piece = result[0]?.transcript ?? '';
+            if (result.isFinal) {
+              finalText += piece;
+            } else {
+              interimText += piece;
+            }
+          }
+          const combinedLive = `${finalText}${interimText}`.trim();
+          liveTranscriptRef.current = combinedLive;
+          const base = baseDraftRef.current;
+          setDraft(base ? (combinedLive ? `${base} ${combinedLive}` : base) : combinedLive);
+          textareaRef.current?.focus();
+        };
+
+        recognition.onerror = (ev) => {
+          if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+            setVoiceError('Microphone permission denied. Please allow microphone access.');
+          }
+        };
+
+        recognition.onend = () => {
+          recognitionRef.current = null;
+          setRecording(false);
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop();
+          }
+          if (liveTranscriptRef.current.trim()) {
+            void polishLiveTranscript(liveTranscriptRef.current);
+          }
+        };
+
+        recognition.start();
+        recognitionRef.current = recognition;
+        startedLiveRecognition = true;
+      } catch {
+        startedLiveRecognition = false;
+      }
+    }
+
+    // 2. Also record audio for Groq Whisper fallback if live recognition didn't capture text
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      if (startedLiveRecognition) {
+        setRecording(true);
+      } else {
+        setVoiceError('Voice input is not supported in this browser.');
+      }
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferredMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : '';
+      const recorder = preferredMime
+        ? new MediaRecorder(stream, { mimeType: preferredMime })
+        : new MediaRecorder(stream);
+
+      chunksRef.current = [];
+      recorder.ondataavailable = (ev) => {
+        if (ev.data.size > 0) chunksRef.current.push(ev.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        // If live word-by-word recognition captured words, polish via shared helper (guarded against double-run)
+        const rawLive = liveTranscriptRef.current.trim();
+        if (rawLive) {
+          await polishLiveTranscript(rawLive);
+          return;
+        }
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        if (blob.size === 0) return;
+        setTranscribing(true);
+        try {
+          const formData = new FormData();
+          formData.append('file', blob, 'recording.webm');
+          const res = await fetch('/api/v1/chat/transcribe', {
+            method: 'POST',
+            credentials: 'include',
+            body: formData,
+          });
+          if (res.ok) {
+            const data = (await res.json()) as { transcript?: string };
+            const text = (data.transcript ?? '').trim();
+            if (text) {
+              const base = baseDraftRef.current;
+              setDraft(base ? `${base} ${text}` : text);
+              textareaRef.current?.focus();
+            } else {
+              setVoiceError('No speech detected. Try speaking closer to the microphone.');
+            }
+          } else {
+            let detail = `Transcription failed (${res.status})`;
+            try {
+              const err = (await res.json()) as { detail?: string };
+              if (err?.detail) detail = err.detail;
+            } catch {
+              // Ignore parse errors
+            }
+            setVoiceError(detail);
+          }
+        } catch {
+          setVoiceError('Could not reach transcription service.');
+        } finally {
+          setTranscribing(false);
+        }
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start(250);
+      setRecording(true);
+    } catch {
+      if (startedLiveRecognition) {
+        setRecording(true);
+      } else {
+        setRecording(false);
+        setVoiceError('Microphone access failed. Check browser permissions.');
+      }
+    }
+  };
 
   // Auto-resize textarea smoothly as text expands
   useEffect(() => {
@@ -120,10 +341,13 @@ export function AIChatInput({
               disabled={sending || loading}
               maxLength={12000}
               rows={1}
-              placeholder="Ask anything..."
+              placeholder={recording ? 'Listening... speak now' : 'Ask anything...'}
               className="h-6 w-full resize-none border-0 bg-transparent p-0 text-[14px] leading-6 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none focus:ring-0 custom-scrollbar"
               style={{ minHeight: '24px', maxHeight: '120px' }}
             />
+            {voiceError && (
+              <p className="mt-1 text-[11px] font-medium text-rose-600">{voiceError}</p>
+            )}
           </div>
 
           {/* Bottom Toolbar */}
@@ -174,6 +398,27 @@ export function AIChatInput({
               <span className="hidden text-[10px] text-neutral-400 sm:inline-block">
                 {draft.length > 0 ? `${draft.length}/12000` : ''}
               </span>
+
+              <button
+                type="button"
+                onClick={() => void handleToggleRecording()}
+                disabled={sending || loading || transcribing}
+                title={recording ? 'Stop recording' : transcribing ? 'Transcribing audio...' : 'Voice input (Whisper)'}
+                aria-label={recording ? 'Stop recording' : 'Voice input'}
+                className={`flex h-8 w-8 items-center justify-center rounded-full border transition-all active:scale-95 cursor-pointer ${
+                  recording
+                    ? 'border-rose-500 bg-rose-600 text-white animate-pulse'
+                    : 'border-[var(--border)] bg-[var(--muted)]/70 text-[var(--foreground)] hover:bg-[var(--muted)]'
+                } disabled:opacity-45 disabled:cursor-not-allowed`}
+              >
+                {transcribing ? (
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                ) : recording ? (
+                  <Square className="h-3 w-3 fill-current" />
+                ) : (
+                  <Mic className="h-3.5 w-3.5" />
+                )}
+              </button>
 
               {sending ? (
                 <button

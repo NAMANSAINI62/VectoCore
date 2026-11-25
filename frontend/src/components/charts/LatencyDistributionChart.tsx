@@ -56,6 +56,11 @@ export function LatencyDistributionChart({
           <CartesianGrid {...GRID_PROPS} />
           <XAxis
             dataKey="bucket"
+            interval={0}
+            angle={-20}
+            textAnchor="end"
+            height={48}
+            tickMargin={8}
             tick={AXIS_TICK_STYLE}
             axisLine={{ stroke: 'var(--border)' }}
             tickLine={false}

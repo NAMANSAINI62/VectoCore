@@ -6,7 +6,8 @@ import {
   useGetModelsQuery,
   TelemetryItem,
 } from '@/store/cacheApi';
-import { DateRangeFilter } from '@/components/analytics/DateRangeFilter';
+import { useAppSelector } from '@/store';
+import { buildDateRangeQueryParams } from '@/store/dateRangeSlice';
 import {
   CacheHitRateChart,
   CacheTrendChart,
@@ -35,26 +36,18 @@ function formatCompact(n: number): string {
 }
 
 export default function AnalyticsPage() {
-  const [selectedDays, setSelectedDays] = useState<number | undefined>(undefined);
-  const [appliedCustom, setAppliedCustom] = useState<{ start: string; end: string } | null>(null);
+  const { selectedDays, appliedCustom } = useAppSelector((state) => state.dateRange);
   const [activeTab, setActiveTab] = useState<AnalyticsTab>('overview');
 
-  const queryParams = useMemo(() => {
-    if (appliedCustom?.start || appliedCustom?.end) {
-      return {
-        start_date: appliedCustom.start || undefined,
-        end_date: appliedCustom.end || undefined,
-      };
-    }
-    return selectedDays ? { days: selectedDays } : undefined;
-  }, [selectedDays, appliedCustom]);
+  const queryParams = useMemo(
+    () => buildDateRangeQueryParams(selectedDays, appliedCustom),
+    [selectedDays, appliedCustom],
+  );
 
   const {
     data: stats,
     isLoading,
-    isFetching,
     isError,
-    refetch,
   } = useGetCacheStatsQuery(queryParams, {
     pollingInterval: 5000,
     refetchOnMountOrArgChange: true,
@@ -81,7 +74,7 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header & Date Filter */}
+      {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h1
@@ -95,21 +88,6 @@ export default function AnalyticsPage() {
             Real-time cache efficiency, latency percentiles, token savings, and active model telemetry.
           </p>
         </div>
-
-        <DateRangeFilter
-          selectedDays={selectedDays}
-          appliedCustom={appliedCustom}
-          onSelectPreset={(days) => {
-            setAppliedCustom(null);
-            setSelectedDays(days);
-          }}
-          onApplyCustom={(range) => {
-            setSelectedDays(undefined);
-            setAppliedCustom(range);
-          }}
-          onRefresh={() => refetch()}
-          isRefreshing={isFetching}
-        />
       </div>
 
       {/* 4-Column Balanced KPI Grid */}

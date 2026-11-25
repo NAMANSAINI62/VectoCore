@@ -2,6 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    letter-spacing: 0.01em;
+    word-spacing: 0.08em;
+    line-height: 1.55;
+    font-kerning: normal;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: 0.005em;
+    word-spacing: 0.08em;
+    line-height: 1.35;
+  }
+
+  p, label, li, td, th, button, input, textarea, select {
+    letter-spacing: 0.01em;
+    word-spacing: 0.07em;
+  }
+}
+
+/* Prevent tight negative letter-spacing from crowding characters */
+.tracking-tight,
+.tracking-tighter {
+  letter-spacing: 0.005em !important;
+  word-spacing: 0.08em;
+}
+
+/* Recharts graph labels, axis ticks, legends, and tooltips spacing */
+.recharts-text,
+.recharts-cartesian-axis-tick-value {
+  letter-spacing: 0.02em;
+  word-spacing: 0.1em;
+  font-size: 11px;
+}
+
+.recharts-legend-wrapper {
+  padding-top: 8px;
+}
+
+.recharts-legend-item {
+  margin-right: 16px !important;
+}
+
+.recharts-legend-item-text {
+  margin-left: 6px;
+  letter-spacing: 0.015em;
+  word-spacing: 0.08em;
+}
+
+.recharts-default-tooltip {
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  word-spacing: 0.06em;
+  padding: 10px 14px !important;
+}
+
 /* 60-30-10 Theme Tokens:
    60% Primary Canvas (--background)
    30% Secondary Surfaces / Cards / Sidebars (--card, --muted, --border)
@@ -139,6 +196,94 @@
   --dock-shadow: 0 10px 28px -8px rgba(59, 36, 24, 0.2), 0 2px 6px rgba(59, 36, 24, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.7);
   --scrollbar-thumb: rgba(59, 36, 24, 0.28);
   --scrollbar-thumb-hover: rgba(59, 36, 24, 0.5);
+}
+
+/* Lavender Cloud (60% Soft Lavender #F2EFFB, 30% Mist Violet #FFFFFF / #E3DDF7, 10% Royal Iris #6D4AFF) */
+[data-theme='lavender'] {
+  --background: #f2effb;
+  --foreground: #231b3d;
+  --card: #ffffff;
+  --card-foreground: #231b3d;
+  --muted: #e3ddf7;
+  --muted-foreground: #584e7a;
+  --border: #cfc6ee;
+  --accent: #6d4aff;
+  --accent-soft: #eae5ff;
+  --accent-foreground: #ffffff;
+  --hero-bg: linear-gradient(135deg, #eae4fb 0%, #f8f6fe 55%, #e6e0fa 100%);
+  --hero-border: #c9bef0;
+  --hero-text: #231b3d;
+  --hero-subtext: #534875;
+  --hero-pill-bg: #ffffff;
+  --hero-pill-text: #5b38eb;
+  --hero-btn-primary-bg: #6d4aff;
+  --hero-btn-primary-text: #ffffff;
+  --hero-btn-secondary-bg: #ffffff;
+  --hero-btn-secondary-text: #231b3d;
+  --stat-number: #231b3d;
+  --hit-bg: #e7e1ff;
+  --hit-text: #4c2bd9;
+  --miss-bg: #ffe4eb;
+  --miss-text: #be123c;
+  --code-bg: #ebe6fa;
+  --code-text: #231b3d;
+  --chart-exact: #6d4aff;
+  --chart-semantic: #a855f7;
+  --chart-miss: #ec4899;
+  --chart-input: #4f46e5;
+  --chart-output: #c084fc;
+  --chart-savings: #14b8a6;
+  --chart-neutral: #7c7399;
+  --chart-grid: rgba(35, 27, 61, 0.09);
+  --chart-axis: #584e7a;
+  --dock-bg: rgba(255, 255, 255, 0.94);
+  --dock-shadow: 0 10px 28px -8px rgba(35, 27, 61, 0.14), 0 2px 6px rgba(35, 27, 61, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --scrollbar-thumb: rgba(109, 74, 255, 0.28);
+  --scrollbar-thumb-hover: rgba(109, 74, 255, 0.5);
+}
+
+/* Glacier Sky (60% Ice Sky #EAF4FC, 30% Frost Mist #FFFFFF / #D6E9F8, 10% Cerulean Blue #0284C7) */
+[data-theme='glacier'] {
+  --background: #eaf4fc;
+  --foreground: #0c2b42;
+  --card: #ffffff;
+  --card-foreground: #0c2b42;
+  --muted: #d6e9f8;
+  --muted-foreground: #416078;
+  --border: #bddaf2;
+  --accent: #0284c7;
+  --accent-soft: #e0f2fe;
+  --accent-foreground: #ffffff;
+  --hero-bg: linear-gradient(135deg, #dbedfb 0%, #f4fafe 55%, #e2f1fc 100%);
+  --hero-border: #b6d7f0;
+  --hero-text: #0c2b42;
+  --hero-subtext: #3b5a73;
+  --hero-pill-bg: #ffffff;
+  --hero-pill-text: #0369a1;
+  --hero-btn-primary-bg: #0284c7;
+  --hero-btn-primary-text: #ffffff;
+  --hero-btn-secondary-bg: #ffffff;
+  --hero-btn-secondary-text: #0c2b42;
+  --stat-number: #0c2b42;
+  --hit-bg: #dff2fe;
+  --hit-text: #0369a1;
+  --miss-bg: #ffe4e8;
+  --miss-text: #be123c;
+  --code-bg: #e1effa;
+  --code-text: #0c2b42;
+  --chart-exact: #0284c7;
+  --chart-semantic: #0ea5e9;
+  --chart-miss: #f97316;
+  --chart-input: #0369a1;
+  --chart-output: #38bdf8;
+  --chart-savings: #0d9488;
+  --chart-neutral: #648299;
+  --chart-grid: rgba(12, 43, 66, 0.09);
+  --chart-axis: #416078;
+  --dock-bg: rgba(255, 255, 255, 0.94);
+  --dock-shadow: 0 10px 28px -8px rgba(12, 43, 66, 0.14), 0 2px 6px rgba(12, 43, 66, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --scrollbar-thumb: rgba(2, 132, 199, 0.28);
+  --scrollbar-thumb-hover: rgba(2, 132, 199, 0.5);
 }
 
 body {

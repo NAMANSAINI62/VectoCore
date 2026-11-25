@@ -111,6 +111,9 @@ export function LatencyComparisonChart({
           <CartesianGrid {...GRID_PROPS} />
           <XAxis
             dataKey="stage"
+            interval="preserveStartEnd"
+            minTickGap={20}
+            tickMargin={8}
             tick={AXIS_TICK_STYLE}
             axisLine={{ stroke: 'var(--border)' }}
             tickLine={false}

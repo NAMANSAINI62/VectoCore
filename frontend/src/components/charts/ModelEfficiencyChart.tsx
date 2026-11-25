@@ -63,6 +63,11 @@ export function ModelEfficiencyChart({
           <CartesianGrid {...GRID_PROPS} />
           <XAxis
             dataKey="shortModel"
+            interval={0}
+            angle={-30}
+            textAnchor="end"
+            height={68}
+            tickMargin={8}
             tick={AXIS_TICK_STYLE}
             axisLine={{ stroke: 'var(--border)' }}
             tickLine={false}

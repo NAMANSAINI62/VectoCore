@@ -15,10 +15,15 @@ import {
   LogOut,
   MessageSquare,
   Palette,
+  Settings,
   UserRound,
 } from 'lucide-react';
 import { useAuth } from '@/features/auth/provider';
 import { THEME_OPTIONS, useTheme } from '@/components/ThemeProvider';
+import { DateRangeFilter } from '@/components/analytics/DateRangeFilter';
+import { useGetCacheStatsQuery } from '@/store/cacheApi';
+import { useAppDispatch, useAppSelector } from '@/store';
+import { setCustomDateRange, setDatePreset } from '@/store/dateRangeSlice';
 
 const navigation = [
   { label: 'Overview', shortLabel: 'Overview', href: '/', icon: LayoutDashboard },
@@ -27,6 +32,7 @@ const navigation = [
   { label: 'AI Playground', shortLabel: 'Playground', href: '/playground', icon: MessageSquare },
   { label: 'Model Management', shortLabel: 'Models', href: '/models', icon: Cpu },
   { label: 'Request Logs', shortLabel: 'Logs', href: '/logs', icon: FileText },
+  { label: 'Settings', shortLabel: 'Settings', href: '/settings', icon: Settings },
 ];
 
 function ThemeSwitcher() {
@@ -85,8 +91,13 @@ function ThemeSwitcher() {
 
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const isOverview = pathname === '/';
+  const isPlayground = pathname === '/playground';
   const router = useRouter();
   const { user, loading, logout } = useAuth();
+  const dispatch = useAppDispatch();
+  const { selectedDays, appliedCustom } = useAppSelector((state) => state.dateRange);
+  const { data: statsData } = useGetCacheStatsQuery(undefined, { skip: !user || !isOverview });
   const currentPage =
     navigation.find(({ href }) => pathname === href || (href !== '/' && pathname.startsWith(`${href}/`))) ??
     navigation[0];
@@ -94,8 +105,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loading && !user) router.replace('/login');
   }, [loading, router, user]);
-
-  const isPlayground = pathname === '/playground';
 
   if (loading || !user) {
     return (
@@ -139,17 +148,29 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="flex items-center gap-2.5 sm:gap-3">
+          {isOverview && (
+            <div className="hidden lg:block">
+              <DateRangeFilter
+                selectedDays={selectedDays}
+                appliedCustom={appliedCustom}
+                defaultStartDate={statsData?.first_request_date}
+                onSelectPreset={(days) => dispatch(setDatePreset(days))}
+                onApplyCustom={(range) => dispatch(setCustomDateRange(range))}
+              />
+            </div>
+          )}
           <ThemeSwitcher />
-          <div
-            title={user.email}
-            className="hidden items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/70 px-2.5 py-1 text-xs text-[var(--foreground)] sm:flex"
+          <Link
+            href="/settings"
+            title={`${user.email} · Open Settings`}
+            className="hidden items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/70 px-2.5 py-1 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] sm:flex"
           >
             <UserRound className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" />
             <div className="min-w-0 leading-tight">
               <div className="max-w-[160px] truncate font-medium">{user.full_name}</div>
               <div className="max-w-[180px] truncate text-[10px] text-[var(--muted-foreground)]">{user.email}</div>
             </div>
-          </div>
+          </Link>
           <button
             type="button"
             onClick={() => void logout()}
@@ -178,7 +199,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       <div className="pointer-events-none sticky bottom-0 z-30 shrink-0 px-2 pb-2.5 pt-2 sm:px-6 sm:pb-4">
         <nav
           aria-label="Workspace bottom navigation"
-          className="pointer-events-auto mx-auto grid w-full max-w-full grid-cols-6 items-center gap-0.5 rounded-2xl border border-[var(--border)] p-1 backdrop-blur-md sm:flex sm:w-fit sm:gap-1 sm:p-1.5"
+          className="pointer-events-auto mx-auto grid w-full max-w-full grid-cols-7 items-center gap-0.5 rounded-2xl border border-[var(--border)] p-1 backdrop-blur-md sm:flex sm:w-fit sm:gap-1 sm:p-1.5"
           style={{
             backgroundColor: 'var(--dock-bg)',
             boxShadow: 'var(--dock-shadow)',

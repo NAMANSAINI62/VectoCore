@@ -305,3 +305,27 @@ class AuthService:
             if session and session.revoked_at is None:
                 await self.session_repo.revoke_session(session)
                 logger.info(f"Session revoked for user: {session.user_id}")
+
+    async def change_password(self, user: User, current_password: str, new_password: str) -> None:
+        """Verify current password and persist a new password hash."""
+        if not user.password_hash:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This account uses passwordless sign-in. Use Email OTP reset to set a password.",
+            )
+        if not security.verify_password(current_password, user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect.",
+            )
+        if current_password == new_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password must be different from your current password.",
+            )
+        user.password_hash = security.hash_password(new_password)
+        await self.db.commit()
+
+    async def logout_all_sessions(self, user_id: uuid.UUID) -> None:
+        """Revoke all active refresh sessions for the user."""
+        await self.session_repo.revoke_all_user_sessions(user_id)

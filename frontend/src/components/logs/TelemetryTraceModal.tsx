@@ -233,13 +233,6 @@ export function TelemetryTraceModal({
                   {getBadgeLabel(activeLog.cache_status)}
                 </span>
               </div>
-              <div>
-                <span className="text-[var(--muted-foreground)] block">Short-Term Memory</span>
-                <span className="inline-flex items-center mt-1 font-mono text-[11px] text-[var(--foreground)]">
-                  {activeLog.memory_window_size ?? 0} msgs · {activeLog.memory_context_tokens ?? 0} tok ·{' '}
-                  {activeLog.memory_summary_included ? 'Summary: Yes' : 'Summary: No'}
-                </span>
-              </div>
               {isHit && (
                 <div>
                   <span className="text-[var(--muted-foreground)] block">Cache Lookup</span>

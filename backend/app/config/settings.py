@@ -76,14 +76,9 @@ class Settings(BaseSettings):
     CHAT_DEFAULT_PROVIDER: str = "groq"
     CHAT_CONTEXT_MESSAGES: int = 24
     CHAT_CONTEXT_MAX_CHARS: int = 24000
-
-    # Short-Term Conversation Memory (within the active conversation only)
-    MEMORY_ENABLED: bool = True
-    MEMORY_MAX_CONTEXT_TOKENS: int = 2000
-    MEMORY_SUMMARY_MAX_TOKENS: int = 350
-    MEMORY_SUMMARY_TRIGGER_MESSAGES: int = 6
-    MEMORY_REDIS_TTL_SECONDS: int = 3600
-    MEMORY_SUMMARY_MODEL: str = "gemini-3.1-flash-lite"
+    GROQ_STT_MODEL: str = "whisper-large-v3-turbo"
+    GROQ_TTS_MODEL: str = "canopylabs/orpheus-v1-english"
+    GROQ_TTS_VOICE: str = "diana"
 
     # Model Context Protocol (MCP) Client
     MCP_ENABLED: bool = False

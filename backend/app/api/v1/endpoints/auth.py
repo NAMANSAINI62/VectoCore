@@ -6,15 +6,17 @@ import secrets
 import time
 from urllib.parse import urlencode
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import get_settings
 from app.database.session import get_db_session
 from app.dependencies.auth import get_current_user
+from app.guardrails.rate_limiter import RedisRateLimiter
 from app.models.user import User
 from app.schemas.auth import (
     AuthMethodsResponse,
+    ChangePasswordRequest,
     EmailOtpRequest,
     EmailOtpVerifyRequest,
     ForgotPasswordRequest,
@@ -33,6 +35,13 @@ from app.services.reset_service import PasswordResetService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 settings = get_settings()
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    return request.client.host if request.client else "unknown"
 
 
 def _set_auth_cookies(
@@ -75,9 +84,11 @@ def _clear_auth_cookies(response: Response) -> None:
 )
 async def register(
     payload: RegisterRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> UserResponse:
     """Create a new user account with secure password hashing."""
+    await RedisRateLimiter().check_endpoint_limit("auth_register", _client_ip(request), limit_per_min=5)
     service = AuthService(db)
     user = await service.register(
         full_name=payload.full_name,
@@ -95,10 +106,12 @@ async def register(
 )
 async def login(
     payload: LoginRequest,
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db_session),
 ) -> TokenResponse:
     """Verify credentials and set secure HttpOnly cookies."""
+    await RedisRateLimiter().check_endpoint_limit("auth_login", _client_ip(request), limit_per_min=5)
     service = AuthService(db)
     _, access_token, refresh_token = await service.authenticate(
         email=payload.email,
@@ -156,6 +169,43 @@ async def logout(
     return MessageResponse(message="Successfully logged out")
 
 
+@router.post(
+    "/change-password",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Change authenticated user's password",
+)
+async def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> MessageResponse:
+    """Verify current password and persist a new password hash."""
+    await RedisRateLimiter().check_endpoint_limit("auth_change_password", _client_ip(request), limit_per_min=5)
+    service = AuthService(db)
+    await service.change_password(current_user, payload.current_password, payload.new_password)
+    return MessageResponse(message="Password updated successfully.")
+
+
+@router.post(
+    "/logout-all",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Revoke all sessions and clear authentication cookies",
+)
+async def logout_all_sessions(
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> MessageResponse:
+    """Sign out from all active devices/sessions."""
+    service = AuthService(db)
+    await service.logout_all_sessions(current_user.id)
+    _clear_auth_cookies(response)
+    return MessageResponse(message="Signed out of all sessions.")
+
+
 @router.get(
     "/me",
     response_model=UserResponse,
@@ -177,12 +227,14 @@ async def get_me(
 )
 async def forgot_password(
     payload: ForgotPasswordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> MessageResponse:
     """
     Generate recovery token for email. Always returns a generic confirmation message
     to prevent user account enumeration.
     """
+    await RedisRateLimiter().check_endpoint_limit("auth_forgot_password", _client_ip(request), limit_per_min=5)
     service = PasswordResetService(db)
     _ = await service.request_password_reset(payload.email)
     return MessageResponse(
@@ -198,9 +250,11 @@ async def forgot_password(
 )
 async def reset_password(
     payload: ResetPasswordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> MessageResponse:
     """Verify recovery token and apply new password."""
+    await RedisRateLimiter().check_endpoint_limit("auth_reset_password", _client_ip(request), limit_per_min=5)
     service = PasswordResetService(db)
     await service.reset_password(
         raw_token=payload.token,

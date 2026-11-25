@@ -6,6 +6,8 @@ import {
   useGetCacheStatsQuery,
   useInspectTelemetryItemQuery,
 } from '@/store/cacheApi';
+import { useAppSelector } from '@/store';
+import { buildDateRangeQueryParams } from '@/store/dateRangeSlice';
 import {
   Activity,
   BarChart3,
@@ -39,8 +41,16 @@ const STATUS_FILTERS = [
 type StatusFilter = (typeof STATUS_FILTERS)[number]['id'];
 
 export default function LogsPage() {
+  const { selectedDays, appliedCustom } = useAppSelector((state) => state.dateRange);
+  const queryParams = useMemo(
+    () => ({
+      activity_limit: 500,
+      ...(buildDateRangeQueryParams(selectedDays, appliedCustom) ?? {}),
+    }),
+    [selectedDays, appliedCustom],
+  );
   const { data: stats, isLoading, isError, isFetching, refetch } = useGetCacheStatsQuery(
-    { activity_limit: 500 },
+    queryParams,
     { pollingInterval: 5000, refetchOnMountOrArgChange: true }
   );
   const [refreshSpin, setRefreshSpin] = useState(false);

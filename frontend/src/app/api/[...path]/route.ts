@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_INTERNAL_URL = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:9417';
+const BACKEND_INTERNAL_URL = (
+  process.env.BACKEND_INTERNAL_URL ||
+  process.env.BACKEND_URL ||
+  'http://127.0.0.1:9417'
+).replace(/\/+$/, '');
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   return handleProxy(request, await params);

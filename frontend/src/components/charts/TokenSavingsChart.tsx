@@ -74,6 +74,8 @@ export function TokenSavingsChart({
           <XAxis
             dataKey="date"
             tickFormatter={formatShortDate}
+            minTickGap={28}
+            tickMargin={8}
             tick={AXIS_TICK_STYLE}
             axisLine={{ stroke: 'var(--border)' }}
             tickLine={false}

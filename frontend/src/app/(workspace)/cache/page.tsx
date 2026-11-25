@@ -7,6 +7,8 @@ import {
   useDeleteCacheEntryMutation,
   CacheEntry,
 } from '@/store/cacheApi';
+import { useAppSelector } from '@/store';
+import { isIsoDateInRange } from '@/store/dateRangeSlice';
 import {
   Check,
   Copy,
@@ -85,8 +87,18 @@ export default function CachePage() {
     }
   };
 
+  const { selectedDays, appliedCustom } = useAppSelector((state) => state.dateRange);
+
+  const filteredItems = useMemo(
+    () =>
+      (data?.items ?? []).filter((item) =>
+        isIsoDateInRange(item.created_at, selectedDays, appliedCustom),
+      ),
+    [data?.items, selectedDays, appliedCustom],
+  );
+
   const pageMetrics = useMemo(() => {
-    const items = data?.items ?? [];
+    const items = filteredItems;
     let hits = 0;
     let saved = 0;
     for (const item of items) {
@@ -94,7 +106,7 @@ export default function CachePage() {
       saved += item.hit_count * (item.input_tokens + item.output_tokens);
     }
     return { count: items.length, hits, saved };
-  }, [data?.items]);
+  }, [filteredItems]);
 
   return (
     <div className="space-y-5">
@@ -304,7 +316,7 @@ export default function CachePage() {
           <div className="p-12 text-center text-xs" style={{ color: 'var(--muted-foreground)' }}>
             Loading cache entries...
           </div>
-        ) : !data || data.items.length === 0 ? (
+        ) : !data || filteredItems.length === 0 ? (
           <div className="p-12 text-center space-y-2">
             <Database className="w-8 h-8 mx-auto" style={{ color: 'var(--muted-foreground)' }} />
             <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
@@ -335,7 +347,7 @@ export default function CachePage() {
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                {data.items.map((entry) => {
+                {filteredItems.map((entry) => {
                   const totalSaved = entry.hit_count * (entry.input_tokens + entry.output_tokens);
                   const tokensPerHit = entry.input_tokens + entry.output_tokens;
                   return (

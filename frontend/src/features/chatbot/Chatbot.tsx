@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useDispatch } from 'react-redux';
 import { ApiClient } from '@/lib/apiClient';
+import { getSavedDefaultModel } from '@/lib/preferences';
 import { cacheApi, useGetCacheStatsQuery } from '@/store/cacheApi';
 import { AIChatInput } from './AIChatInput';
 import { ChatHistorySidebar } from './ChatHistorySidebar';
@@ -29,7 +30,6 @@ import {
   consumeChatStream,
   type Conversation,
   type Message,
-  type TTSResponse,
 } from './chatStream';
 import {
   flattenMarkdownSnippet,
@@ -179,6 +179,8 @@ export function Chatbot() {
   const openAbortRef = useRef<AbortController | null>(null);
   const openingIdRef = useRef<string | null>(null);
   const conversationCacheRef = useRef<Map<string, Conversation>>(new Map());
+  const ttsCacheRef = useRef<Map<string, string[]>>(new Map());
+  const ttsSessionRef = useRef(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const streamScrollRef = useRef<HTMLDivElement>(null);
@@ -250,16 +252,26 @@ export function Chatbot() {
         setModels(modelRows);
         setConversations(conversationRows);
 
-        const defaultProvider =
-          providerRows.find((item) => item.id === 'groq' && item.configured) ??
-          providerRows.find((item) => item.configured) ??
-          providerRows[0];
+        const savedDefault = getSavedDefaultModel();
+        const savedProvider = savedDefault
+          ? providerRows.find((item) => item.id === savedDefault.provider && item.configured && item.models.includes(savedDefault.modelId))
+          : undefined;
 
-        if (defaultProvider) {
-          setProvider(defaultProvider.id);
-          const firstModel = defaultProvider.models[0];
-          if (firstModel) {
-            setModel(firstModel);
+        if (savedProvider && savedDefault) {
+          setProvider(savedProvider.id);
+          setModel(savedDefault.modelId);
+        } else {
+          const defaultProvider =
+            providerRows.find((item) => item.id === 'groq' && item.configured) ??
+            providerRows.find((item) => item.configured) ??
+            providerRows[0];
+
+          if (defaultProvider) {
+            setProvider(defaultProvider.id);
+            const firstModel = defaultProvider.models[0];
+            if (firstModel) {
+              setModel(firstModel);
+            }
           }
         }
       })
@@ -543,6 +555,37 @@ export function Chatbot() {
     }
   };
 
+  const splitSpeechChunks = (text: string): string[] => {
+    const capped = text.slice(0, 1000).trim();
+    if (!capped) return [];
+    const sentences = capped.split(/(?<=[.!?])\s+/).filter(Boolean);
+    const chunks: string[] = [];
+    let current = '';
+    const maxLen = () => (chunks.length === 0 ? 220 : 400);
+    for (const s of sentences) {
+      if (current && current.length + 1 + s.length > maxLen()) {
+        chunks.push(current.trim());
+        current = s;
+      } else {
+        current = current ? `${current} ${s}` : s;
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks.length > 0 ? chunks : [capped.slice(0, 220)];
+  };
+
+  const fetchTtsUrl = async (chunk: string, voice: string): Promise<string> => {
+    const res = await fetch(`${API}/chat/tts`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: chunk, voice }),
+    });
+    if (!res.ok) throw new Error(`TTS failed (${res.status})`);
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  };
+
   const toggleSpeech = async (item: Message) => {
     if (playingId === item.id) {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -555,16 +598,119 @@ export function Chatbot() {
       window.speechSynthesis.cancel();
     }
     stopSpeech();
+
+    const cleanSpeechText = item.content
+      .slice(0, 6000)
+      .replace(/\[(\d+)\]\([^)]+\)/g, '')
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/[*_`#>~-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const speakText = cleanSpeechText || item.content.slice(0, 6000);
+    if (!speakText) return;
+
+    const sessionId = ++ttsSessionRef.current;
+
+    const playUrlsSequentially = (urls: string[], index: number) => {
+      if (ttsSessionRef.current !== sessionId || index >= urls.length) {
+        if (ttsSessionRef.current === sessionId) {
+          setPlayingId(null);
+          setPaused(false);
+        }
+        return;
+      }
+      const audio = new Audio(urls[index]);
+      audioRef.current = audio;
+      audio.onended = () => playUrlsSequentially(urls, index + 1);
+      audio.onerror = () => {
+        setPlayingId(null);
+        setPaused(false);
+      };
+      setPlayingId(item.id);
+      setPaused(false);
+      void audio.play().catch(() => {
+        setPlayingId(null);
+        setPaused(false);
+      });
+    };
+
+    const activeVoice = 'diana';
+    const ttsCacheKey = `${item.id}:${activeVoice}`;
+    const cachedUrls = ttsCacheRef.current.get(ttsCacheKey);
+    if (cachedUrls && cachedUrls.length > 0) {
+      playUrlsSequentially(cachedUrls, 0);
+      return;
+    }
+
+    setTtsLoadingId(item.id);
+    try {
+      const chunks = splitSpeechChunks(speakText);
+      const firstUrl = await fetchTtsUrl(chunks[0], activeVoice);
+      if (ttsSessionRef.current !== sessionId) {
+        URL.revokeObjectURL(firstUrl);
+        return;
+      }
+      setTtsLoadingId(null);
+
+      // Play chunk 1 immediately while prefetching remaining chunks in background
+      const urls: string[] = [firstUrl];
+      const remainingPromises = chunks.slice(1).map((c) => fetchTtsUrl(c, activeVoice));
+
+      const playWithPrefetch = async (idx: number) => {
+        if (ttsSessionRef.current !== sessionId) return;
+        const audio = new Audio(urls[idx]);
+        audioRef.current = audio;
+        setPlayingId(item.id);
+        setPaused(false);
+        audio.onended = async () => {
+          if (ttsSessionRef.current !== sessionId) return;
+          const nextIdx = idx + 1;
+          if (nextIdx >= chunks.length) {
+            ttsCacheRef.current.set(ttsCacheKey, urls);
+            setPlayingId(null);
+            setPaused(false);
+            return;
+          }
+          if (!urls[nextIdx]) {
+            try {
+              urls[nextIdx] = await remainingPromises[nextIdx - 1];
+            } catch {
+              setPlayingId(null);
+              setPaused(false);
+              return;
+            }
+          }
+          void playWithPrefetch(nextIdx);
+        };
+        audio.onerror = () => {
+          setPlayingId(null);
+          setPaused(false);
+        };
+        await audio.play();
+      };
+
+      void Promise.all(remainingPromises)
+        .then((rest) => {
+          if (ttsSessionRef.current === sessionId) {
+            rest.forEach((u, i) => {
+              urls[i + 1] = u;
+            });
+            ttsCacheRef.current.set(ttsCacheKey, urls);
+          }
+        })
+        .catch(() => {});
+
+      await playWithPrefetch(0);
+      return;
+    } catch {
+      // Fall back to browser speech synthesis if Groq TTS fails or quota is reached
+    } finally {
+      setTtsLoadingId(null);
+    }
+
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      const cleanSpeechText = item.content
-        .slice(0, 6000)
-        .replace(/\[(\d+)\]\([^)]+\)/g, '')
-        .replace(/https?:\/\/\S+/g, '')
-        .replace(/[*_`#>~-]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      const utterance = new SpeechSynthesisUtterance(cleanSpeechText || item.content.slice(0, 6000));
+      const utterance = new SpeechSynthesisUtterance(speakText);
       const voices = window.speechSynthesis.getVoices();
       const naturalVoice =
         voices.find((v) => /aria/i.test(v.name) && /^en/i.test(v.lang)) ||
@@ -588,6 +734,7 @@ export function Chatbot() {
   };
 
   const stopSpeech = () => {
+    ttsSessionRef.current += 1;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;

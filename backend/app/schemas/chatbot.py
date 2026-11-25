@@ -79,6 +79,7 @@ class ModelResponse(BaseModel):
 
 class TextToSpeechRequest(BaseModel):
     text: str = Field(min_length=1, max_length=6000)
+    voice: Literal["troy", "diana", "hannah", "autumn", "austin", "daniel"] | None = None
 
     @field_validator("text")
     @classmethod
@@ -89,36 +90,24 @@ class TextToSpeechRequest(BaseModel):
         return value
 
 
-class TextToSpeechResponse(BaseModel):
-    audio_base64: str
-    audio_mime_type: str
-
-
 class AudioTranscribeResponse(BaseModel):
     transcript: str
     model: str
     target_language: str | None = None
 
 
-class LiveConnectRequest(BaseModel):
-    mode: Literal["translate", "preview", "extended_thinking"] = "preview"
-    prompt: str = Field(min_length=1, max_length=12000)
-    target_language: str | None = Field(default=None, max_length=80)
-    model: str | None = Field(default=None, max_length=160)
-    thinking_budget: int | None = Field(default=2048, ge=0, le=24576)
+class VoicePolishRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=6000)
 
-    @field_validator("prompt")
+    @field_validator("text")
     @classmethod
-    def live_prompt_must_contain_non_whitespace(cls, value: str) -> str:
-        clean = value.strip()
-        if not clean:
-            raise ValueError("Prompt cannot be empty.")
-        return clean
+    def voice_text_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Text cannot be empty.")
+        return value
 
 
-class LiveConnectResponse(BaseModel):
-    text: str
-    thoughts: str | None = None
-    model: str
-    mode: Literal["translate", "preview", "extended_thinking"]
-    target_language: str | None = None
+class VoicePolishResponse(BaseModel):
+    polished_text: str
+    raw_text: str

@@ -123,6 +123,40 @@ class RedisRateLimiter:
         except Exception:
             pass
 
+    async def check_endpoint_limit(
+        self,
+        scope: str,
+        identifier: str,
+        limit_per_min: int = 5,
+        window_sec: int = 60,
+    ) -> None:
+        """Enforce a per-identifier sliding-window rate limit for auth or audio endpoints."""
+        ident = (identifier or "unknown").strip()
+        try:
+            r = await self._client()
+            ok, retry_after = await self._check_sliding_window(
+                r,
+                f"rl:{scope}:{ident}",
+                limit_per_min,
+                window_sec=window_sec,
+            )
+            if not ok:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Rate limit exceeded. Please wait before trying again.",
+                    headers={"Retry-After": str(retry_after)},
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            if self.settings.RATE_LIMIT_FAIL_OPEN:
+                logger.warning(
+                    "RATE LIMITER WARNING: Redis unavailable (%s); failing open.",
+                    type(exc).__name__,
+                )
+                return
+            raise HTTPException(status_code=503, detail="Rate limiter unavailable.")
+
     def _judge_cache_key(self, redacted_text: str, policy_version: str) -> str:
         digest = hmac.new(
             self.settings.GUARDRAILS_HASH_KEY.encode("utf-8"),

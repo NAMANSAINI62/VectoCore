@@ -1,11 +1,16 @@
 """Authenticated conversation management and streaming chat API."""
 
 import asyncio
+import base64
 import json
 import logging
+import re
+import struct
 import time
 import uuid
 from collections.abc import AsyncIterator
+
+import httpx
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -30,17 +35,17 @@ from app.schemas.chatbot import (
     ConversationCreate,
     ConversationResponse,
     ConversationUpdate,
-    LiveConnectRequest,
-    LiveConnectResponse,
     ModelResponse,
     ProviderResponse,
     TextToSpeechRequest,
-    TextToSpeechResponse,
+    VoicePolishRequest,
+    VoicePolishResponse,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Chatbot"])
 settings = get_settings()
+_groq_audio_client = httpx.AsyncClient(timeout=30.0)
 
 
 def _sse(event: str, data: dict[str, object]) -> str:
@@ -248,8 +253,6 @@ async def delete_conversation(
     conversation = await _owned_conversation(db, user, conversation_id)
     await db.delete(conversation)
     await db.commit()
-    from app.services.memory_service import invalidate_conversation_memory
-    await invalidate_conversation_memory(user.id, conversation_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -456,3 +459,285 @@ async def chat_completion(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )
+
+
+def _clean_tts_text(raw: str) -> str:
+    cleaned = re.sub(r"\[(\d+)\]\([^)]+\)", "", raw)
+    cleaned = re.sub(r"https?://\S+", "", cleaned)
+    cleaned = re.sub(r"[*_`#>~-]+", " ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _fix_wav_header(raw: bytes) -> bytes:
+    """Replace 0xFFFFFFFF streaming WAV chunk sizes with exact byte lengths for clean browser decoding."""
+    if len(raw) < 44 or raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
+        return raw
+    buf = bytearray(raw)
+    struct.pack_into("<I", buf, 4, len(buf) - 8)
+    data_idx = buf.find(b"data", 12)
+    if data_idx != -1 and data_idx + 8 <= len(buf):
+        struct.pack_into("<I", buf, data_idx + 4, len(buf) - (data_idx + 8))
+    return bytes(buf)
+
+
+_VOICE_POLISH_SYSTEM_PROMPT = (
+    "You are a Wispr Flow-style voice-to-text editor for an AI assistant chat box (VectoCore). "
+    "Rewrite the user's raw spoken transcript into clean, natural, ready-to-send text:\n"
+    "1. Remove filler words and hesitations in English, Hindi, and Hinglish "
+    "(e.g., um, uh, er, like, you know, actually, basically, matlab, haan, toh, arre, woh).\n"
+    "2. Resolve self-corrections and mid-sentence restarts—keep only the speaker's final intended meaning "
+    "(e.g., '3 pm no wait 5 pm' -> '5 PM'; 'kal nahi parso' -> 'parso').\n"
+    "3. Fix punctuation, capitalization, and spacing so it reads clearly as a concise AI prompt.\n"
+    "4. Preserve the speaker's original language and script: English stays English, "
+    "Hindi (Devanagari) stays Hindi, and Hinglish (Romanized Hindi+English) stays clean Hinglish. "
+    "Do NOT translate, do NOT answer the prompt, and do NOT add quotes or explanations. "
+    "Output ONLY the cleaned text."
+)
+
+
+async def _polish_voice_transcript(raw_text: str) -> str:
+    """Clean raw voice dictation (remove fillers, fix self-corrections, add punctuation) via fast Groq LLM."""
+    cleaned = (raw_text or "").strip()
+    if not cleaned:
+        return ""
+    api_key = (settings.GROQ_API_KEY or "").strip()
+    if not api_key:
+        return cleaned
+    try:
+        resp = await _groq_audio_client.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": settings.GROQ_DEFAULT_MODEL,
+                "temperature": 0.1,
+                "max_tokens": 512,
+                "messages": [
+                    {"role": "system", "content": _VOICE_POLISH_SYSTEM_PROMPT},
+                    {"role": "user", "content": cleaned},
+                ],
+            },
+            timeout=10.0,
+        )
+        if resp.status_code < 400:
+            body = resp.json()
+            choices = body.get("choices") or []
+            if choices:
+                polished = str(((choices[0].get("message") or {}).get("content") or "")).strip()
+                if polished:
+                    return polished
+    except Exception as exc:
+        logger.warning("Voice polish skipped (%s); returning raw transcript.", exc)
+    return cleaned
+
+
+@router.post("/chat/voice-polish", response_model=VoicePolishResponse)
+async def polish_voice_text(
+    payload: VoicePolishRequest,
+    user: User = Depends(get_current_user),
+) -> VoicePolishResponse:
+    """Polish live-dictated voice text (English, Hindi, Hinglish) into clean prompt text."""
+    await RedisRateLimiter().check_endpoint_limit("chat_transcribe", str(user.id), limit_per_min=15)
+    polished = await _polish_voice_transcript(payload.text)
+    return VoicePolishResponse(polished_text=polished, raw_text=payload.text)
+
+
+@router.post("/chat/transcribe", response_model=AudioTranscribeResponse)
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+) -> AudioTranscribeResponse:
+    """Transcribe voice input via Groq Whisper and polish with Wispr Flow-style cleanup."""
+    await RedisRateLimiter().check_endpoint_limit("chat_transcribe", str(user.id), limit_per_min=15)
+    api_key = (settings.GROQ_API_KEY or "").strip()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Groq API key is not configured.")
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio recording.")
+
+    filename = file.filename or "recording.webm"
+    content_type = file.content_type or "audio/webm"
+    resp = await _groq_audio_client.post(
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+        headers={"Authorization": f"Bearer {api_key}"},
+        data={"model": settings.GROQ_STT_MODEL},
+        files={"file": (filename, audio_bytes, content_type)},
+    )
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=f"Groq STT error: {resp.text[:300]}")
+    body = resp.json()
+    raw_transcript = (body.get("text") or "").strip()
+    polished_transcript = await _polish_voice_transcript(raw_transcript) if raw_transcript else ""
+    return AudioTranscribeResponse(
+        transcript=polished_transcript,
+        model=settings.GROQ_STT_MODEL,
+    )
+
+
+_FIXED_GROQ_TTS_VOICE = "diana"
+_FIXED_GEMINI_TTS_VOICE = "Kore"
+
+
+def _pcm16_to_wav(
+    pcm_bytes: bytes,
+    sample_rate: int = 24000,
+    channels: int = 1,
+    bits_per_sample: int = 16,
+) -> bytes:
+    """Wrap raw signed 16-bit PCM bytes into a standard RIFF/WAVE container."""
+    byte_rate = sample_rate * channels * (bits_per_sample // 8)
+    block_align = channels * (bits_per_sample // 8)
+    data_size = len(pcm_bytes)
+    header = struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF",
+        36 + data_size,
+        b"WAVE",
+        b"fmt ",
+        16,
+        1,
+        channels,
+        sample_rate,
+        byte_rate,
+        block_align,
+        bits_per_sample,
+        b"data",
+        data_size,
+    )
+    return header + pcm_bytes
+
+
+async def _synthesize_gemini_tts(text: str) -> bytes | None:
+    """Fallback TTS via Gemini native audio generation using GEMINI_API_KEY and GEMINI_TTS_MODELS."""
+    gemini_key = (settings.GEMINI_API_KEY or "").strip()
+    if not gemini_key:
+        return None
+    raw_models = [m.strip() for m in (settings.GEMINI_TTS_MODELS or "").split(",") if m.strip()]
+    if not raw_models:
+        raw_models = ["gemini-2.5-flash-preview-tts"]
+    ordered_models = sorted(raw_models, key=lambda m: (0 if "2.5-flash" in m else 1))
+    sample_rate = int(getattr(settings, "GEMINI_TTS_SAMPLE_RATE", 24000) or 24000)
+
+    for model_name in ordered_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+        try:
+            resp = await _groq_audio_client.post(
+                url,
+                params={"key": gemini_key},
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [{"parts": [{"text": text}]}],
+                    "generationConfig": {
+                        "responseModalities": ["AUDIO"],
+                        "speechConfig": {
+                            "voiceConfig": {
+                                "prebuiltVoiceConfig": {"voiceName": _FIXED_GEMINI_TTS_VOICE}
+                            }
+                        },
+                    },
+                },
+            )
+            if resp.status_code >= 400:
+                logger.warning("Gemini TTS fallback (%s) returned %s", model_name, resp.status_code)
+                continue
+            body = resp.json()
+            candidates = body.get("candidates") or []
+            parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
+            for part in parts:
+                inline = part.get("inlineData") or part.get("inline_data")
+                if not inline or not inline.get("data"):
+                    continue
+                audio_bytes = base64.b64decode(inline["data"])
+                mime = str(inline.get("mimeType") or inline.get("mime_type") or "").lower()
+                if "wav" in mime:
+                    return _fix_wav_header(audio_bytes)
+                return _pcm16_to_wav(audio_bytes, sample_rate=sample_rate)
+        except Exception as exc:
+            logger.warning("Gemini TTS fallback (%s) failed: %s", model_name, exc)
+            continue
+    return None
+
+
+@router.post("/chat/tts")
+async def synthesize_speech(
+    payload: TextToSpeechRequest,
+    user: User = Depends(get_current_user),
+) -> Response:
+    """Synthesize assistant read-aloud speech via Groq Orpheus TTS with Gemini TTS fallback."""
+    await RedisRateLimiter().check_endpoint_limit("chat_tts", str(user.id), limit_per_min=5)
+    api_key = (settings.GROQ_API_KEY or "").strip()
+    cleaned = _clean_tts_text(payload.text)[:1000]
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Nothing speakable in message.")
+
+    groq_resp: httpx.Response | None = None
+    groq_timed_out = False
+
+    if api_key:
+        try:
+            groq_resp = await _groq_audio_client.post(
+                "https://api.groq.com/openai/v1/audio/speech",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": settings.GROQ_TTS_MODEL,
+                    "voice": _FIXED_GROQ_TTS_VOICE,
+                    "input": cleaned,
+                    "response_format": "wav",
+                },
+            )
+            if groq_resp.status_code < 400:
+                return Response(
+                    content=_fix_wav_header(groq_resp.content),
+                    media_type="audio/wav",
+                    headers={"X-TTS-Provider": "groq"},
+                )
+        except httpx.TimeoutException:
+            groq_timed_out = True
+            logger.warning("Groq TTS timed out; attempting Gemini TTS fallback.")
+        except httpx.HTTPError as exc:
+            logger.warning("Groq TTS HTTP error (%s); attempting Gemini TTS fallback.", exc)
+
+    should_fallback = (
+        not api_key
+        or groq_timed_out
+        or groq_resp is None
+        or groq_resp.status_code == 429
+        or groq_resp.status_code >= 500
+    )
+    if should_fallback:
+        fallback_wav = await _synthesize_gemini_tts(cleaned)
+        if fallback_wav:
+            return Response(
+                content=fallback_wav,
+                media_type="audio/wav",
+                headers={"X-TTS-Provider": "gemini-fallback"},
+            )
+
+    if groq_timed_out:
+        raise HTTPException(
+            status_code=504,
+            detail="Voice synthesis timed out. Please try again with shorter text.",
+        )
+
+    if groq_resp is not None:
+        headers: dict[str, str] = {}
+        retry_after = groq_resp.headers.get("retry-after")
+        if retry_after:
+            headers["Retry-After"] = retry_after
+        detail = f"Groq TTS error: {groq_resp.text[:300]}"
+        try:
+            err_json = groq_resp.json()
+            msg = (err_json.get("error") or {}).get("message")
+            if msg:
+                detail = str(msg)
+        except Exception:
+            pass
+        raise HTTPException(status_code=groq_resp.status_code, detail=detail, headers=headers or None)
+
+    raise HTTPException(status_code=503, detail="No TTS provider is currently available.")

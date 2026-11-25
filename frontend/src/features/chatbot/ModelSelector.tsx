@@ -6,7 +6,6 @@ import {
   Check,
   ChevronRight,
   Cpu,
-  Layers,
   Scale,
   Search,
   Sparkles,
@@ -36,41 +35,59 @@ const PROVIDER_LABELS: Record<string, string> = {
   nvidia: 'NVIDIA',
 };
 
-type PaneKey = 'auto' | 'deep_research' | 'complex' | 'balanced' | 'fast' | 'others';
+type PaneKey = 'auto' | 'deep_research' | 'complex' | 'balanced' | 'fast';
+type TierKey = Exclude<PaneKey, 'auto'>;
 
-const GEMINI_TIERS: ReadonlyArray<{
-  key: Exclude<PaneKey, 'auto' | 'others'>;
+const MODEL_TIERS: ReadonlyArray<{
+  key: TierKey;
   label: string;
   shortLabel: string;
   hint: string;
 }> = [
   { key: 'deep_research', label: 'Deep Research', shortLabel: 'Deep Research', hint: 'Heavy synthesis & deep analysis' },
-  { key: 'complex', label: 'Complex Queries', shortLabel: 'Complex', hint: 'Architecture, debug & tradeoffs' },
+  { key: 'complex', label: 'Complex Queries', shortLabel: 'Complex', hint: 'Architecture, debug & high-parameter models' },
   { key: 'balanced', label: 'Balanced Queries', shortLabel: 'Balanced', hint: 'Code, comparisons & everyday chat' },
-  { key: 'fast', label: 'Fast Queries', shortLabel: 'Fast', hint: 'Instant replies & high daily quota' },
+  { key: 'fast', label: 'Fast Queries', shortLabel: 'Fast', hint: 'Instant replies & low-latency models' },
 ];
 
 export function formatProviderLabel(provider: string): string {
   return PROVIDER_LABELS[provider] ?? provider;
 }
 
+function getModelTier(m: Model): TierKey {
+  if (m.provider === 'gemini') {
+    const t = m.tier as TierKey | undefined;
+    if (t === 'deep_research' || t === 'complex' || t === 'balanced' || t === 'fast') {
+      return t;
+    }
+    return 'balanced';
+  }
+  const key = `${m.id} ${m.name}`.toLowerCase();
+  if (key.includes('120b') || key.includes('340b') || key.includes('ultra')) {
+    return 'complex';
+  }
+  if (key.includes('flash') || key.includes('bolt')) {
+    return 'fast';
+  }
+  return 'balanced';
+}
+
 function getProviderIcon(provider: string) {
   if (provider === 'groq') {
-    return <Zap className="h-3.5 w-3.5 text-amber-300" />;
+    return <Zap className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400" />;
   }
   if (provider === 'gemini') {
-    return <Sparkles className="h-3.5 w-3.5 text-sky-300" />;
+    return <Sparkles className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" />;
   }
-  return <Sparkles className="h-3.5 w-3.5 text-neutral-300" />;
+  return <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" />;
 }
 
 function getPaneIcon(pane: PaneKey) {
-  if (pane === 'auto') return <Wand2 className="h-3.5 w-3.5 text-sky-300" />;
-  if (pane === 'deep_research') return <BookOpenCheck className="h-3.5 w-3.5 text-violet-300" />;
-  if (pane === 'complex') return <Cpu className="h-3.5 w-3.5 text-sky-300" />;
-  if (pane === 'balanced') return <Scale className="h-3.5 w-3.5 text-emerald-300" />;
-  if (pane === 'fast') return <Zap className="h-3.5 w-3.5 text-amber-300" />;
-  return <Layers className="h-3.5 w-3.5 text-neutral-300" />;
+  if (pane === 'auto') return <Wand2 className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" />;
+  if (pane === 'deep_research') return <BookOpenCheck className="h-3.5 w-3.5 text-violet-500 dark:text-violet-400" />;
+  if (pane === 'complex') return <Cpu className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" />;
+  if (pane === 'balanced') return <Scale className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />;
+  return <Zap className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400" />;
 }
 
 export type ModelSelectorProps = {
@@ -84,11 +101,10 @@ export type ModelSelectorProps = {
 };
 
 /**
- * Unified Two-Pane Model Selector:
- * - Single solid glass container (no external floating edge flyouts or layout shifts)
- * - Left rail: Gemini Auto, 4 Gemini query tiers, and Other Providers
- * - Right pane: Large, stationary, easy-to-click short-named model cards
- * - Anti-jitter hover-intent lock prevents accidental tier switches on diagonal laptop trackpad moves
+ * Unified Two-Pane Frosted Glass Model Selector:
+ * - Single translucent blurred container matching the top navigation bar
+ * - Left rail: Smart Auto + 4 balanced query tiers (Deep Research, Complex, Balanced, Fast)
+ * - Right pane: Large, stationary, easy-to-click model cards across all providers
  */
 export function ModelSelector({
   models,
@@ -136,9 +152,9 @@ export function ModelSelector({
     [models],
   );
 
-  // Deduplicated Gemini tier buckets driven by backend model metadata
-  const geminiTierModels = useMemo(() => {
-    const buckets: Record<Exclude<PaneKey, 'auto' | 'others'>, Model[]> = {
+  // Distribute all models (Gemini + other providers) across Deep Research, Complex, Balanced, and Fast
+  const tierModels = useMemo(() => {
+    const buckets: Record<TierKey, Model[]> = {
       deep_research: [],
       complex: [],
       balanced: [],
@@ -146,25 +162,23 @@ export function ModelSelector({
     };
     const seen = new Set<string>();
     for (const m of models) {
-      if (m.provider !== 'gemini' || m.id === 'gemini-auto' || seen.has(m.id)) {
+      if (m.provider === 'gemini' && m.id === 'gemini-auto') {
         continue;
       }
-      const key = (m.tier as Exclude<PaneKey, 'auto' | 'others'> | undefined) ?? 'balanced';
-      if (key in buckets) {
-        buckets[key].push(m);
-        seen.add(m.id);
-      }
+      const dedupKey = `${m.provider}:${m.id}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+      const key = getModelTier(m);
+      buckets[key].push(m);
+    }
+    for (const tierKey of Object.keys(buckets) as TierKey[]) {
+      buckets[tierKey].sort((a, b) => {
+        const aConf = configuredMap.get(a.provider) ?? false;
+        const bConf = configuredMap.get(b.provider) ?? false;
+        return aConf === bConf ? 0 : aConf ? -1 : 1;
+      });
     }
     return buckets;
-  }, [models]);
-
-  const otherModels = useMemo(() => {
-    const list = models.filter((m) => m.provider !== 'gemini');
-    return [...list].sort((a, b) => {
-      const aConf = configuredMap.get(a.provider) ?? false;
-      const bConf = configuredMap.get(b.provider) ?? false;
-      return aConf === bConf ? 0 : aConf ? -1 : 1;
-    });
   }, [models, configuredMap]);
 
   // Open on the pane corresponding to the currently active model
@@ -174,33 +188,29 @@ export function ModelSelector({
     setSearchQuery('');
     setHighlightedIndex(0);
 
-    if (currentProvider !== 'gemini') {
-      setActivePane('others');
-      return;
-    }
-    if (currentModelId === 'gemini-auto') {
+    if (currentProvider === 'gemini' && currentModelId === 'gemini-auto') {
       setActivePane('auto');
       return;
     }
-    const current = models.find((m) => m.provider === 'gemini' && m.id === currentModelId);
-    const tier = current?.tier as PaneKey | undefined;
-    if (tier && (tier === 'deep_research' || tier === 'complex' || tier === 'balanced' || tier === 'fast')) {
-      setActivePane(tier);
+    const current = models.find((m) => m.provider === currentProvider && m.id === currentModelId);
+    if (current) {
+      setActivePane(getModelTier(current));
     } else {
-      setActivePane('auto');
+      setActivePane(geminiAutoModel ? 'auto' : 'balanced');
     }
     return () => clearHoverTimer();
-  }, [isOpen, currentProvider, currentModelId, models]);
+  }, [isOpen, currentProvider, currentModelId, models, geminiAutoModel]);
 
   const filteredSearchModels = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
     const list = models.filter((m) => {
+      const effectiveTier = m.id === 'gemini-auto' ? 'auto' : getModelTier(m);
       return (
         m.name.toLowerCase().includes(q) ||
         m.id.toLowerCase().includes(q) ||
         formatProviderLabel(m.provider).toLowerCase().includes(q) ||
-        (m.tier ?? '').replace('_', ' ').includes(q)
+        effectiveTier.replace('_', ' ').includes(q)
       );
     });
     return [...list].sort((a, b) => {
@@ -241,24 +251,29 @@ export function ModelSelector({
   if (!isOpen) return null;
 
   const isSearching = searchQuery.trim().length > 0;
-  const activeTierInfo = GEMINI_TIERS.find((t) => t.key === activePane) ?? null;
+  const activeTierInfo = MODEL_TIERS.find((t) => t.key === activePane) ?? null;
 
   return (
     <div
       onKeyDown={handleKeyDown}
-      className="w-[376px] sm:w-[436px] max-w-[92vw] select-none"
+      className="w-[376px] sm:w-[444px] max-w-[92vw] select-none"
     >
       <div
-        className="rounded-2xl border border-white/[0.16] p-2.5 text-neutral-100 backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150"
+        className="rounded-2xl border p-2.5 backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150"
         style={{
-          background: 'linear-gradient(180deg, rgba(27, 32, 43, 0.98) 0%, rgba(17, 21, 28, 0.99) 100%)',
-          boxShadow: '0 20px 48px rgba(0, 0, 0, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.14)',
+          background: 'color-mix(in srgb, var(--card) 72%, transparent)',
+          borderColor: 'var(--border)',
+          color: 'var(--foreground)',
+          boxShadow: '0 16px 40px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.35)',
         }}
       >
         {/* Top Search Bar */}
-        <div className="flex items-center gap-2 pb-2 mb-2 border-b border-white/[0.08]">
+        <div
+          className="flex items-center gap-2 pb-2 mb-2 border-b"
+          style={{ borderColor: 'var(--border)' }}
+        >
           <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--muted-foreground)]" />
             <input
               ref={searchInputRef}
               type="text"
@@ -268,29 +283,39 @@ export function ModelSelector({
                 setHighlightedIndex(0);
               }}
               placeholder="Search models or tiers..."
-              className="h-8 w-full rounded-xl border border-white/[0.10] bg-black/35 pl-8 pr-7 text-[12px] text-neutral-100 placeholder:text-neutral-400 outline-none focus:border-sky-400/50"
+              className="h-8 w-full rounded-xl border pl-8 pr-7 text-[12px] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none focus:border-[var(--accent)]"
+              style={{
+                background: 'color-mix(in srgb, var(--background) 65%, transparent)',
+                borderColor: 'var(--border)',
+              }}
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
                 aria-label="Clear search"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-200"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
-          <span className="shrink-0 rounded-lg bg-white/[0.05] px-2 py-1 text-[10.5px] font-medium text-neutral-400">
+          <span
+            className="shrink-0 rounded-lg border px-2 py-1 text-[10.5px] font-medium text-[var(--muted-foreground)]"
+            style={{
+              background: 'color-mix(in srgb, var(--background) 55%, transparent)',
+              borderColor: 'var(--border)',
+            }}
+          >
             {isSearching ? filteredSearchModels.length : models.length} models
           </span>
         </div>
 
         {isSearching ? (
           /* Search Results View */
-          <div className="h-[248px] overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+          <div className="h-[258px] overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
             {filteredSearchModels.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-xs text-neutral-400">
+              <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
                 No matching models found.
               </div>
             ) : (
@@ -298,6 +323,7 @@ export function ModelSelector({
                 const isSelected = m.id === currentModelId && m.provider === currentProvider;
                 const isConfigured = configuredMap.get(m.provider) ?? false;
                 const isHighlighted = idx === highlightedIndex;
+                const tierLabel = m.id === 'gemini-auto' ? 'auto' : getModelTier(m).replace('_', ' ');
                 return (
                   <button
                     type="button"
@@ -310,28 +336,35 @@ export function ModelSelector({
                         onClose();
                       }
                     }}
-                    className={`flex h-[42px] w-full items-center justify-between rounded-xl px-3 text-left border transition-colors ${
+                    className={`flex h-[44px] w-full items-center justify-between rounded-xl px-3 text-left border transition-colors ${
                       isSelected
-                        ? 'bg-sky-500/20 border-sky-400/45 text-white'
+                        ? 'border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--foreground)]'
                         : isHighlighted
-                        ? 'bg-white/[0.10] border-white/[0.16] text-neutral-100'
-                        : 'bg-white/[0.04] border-transparent text-neutral-200 hover:bg-white/[0.09]'
+                        ? 'border-[var(--border)] bg-[var(--background)]/75 text-[var(--foreground)]'
+                        : 'border-transparent bg-[var(--background)]/45 text-[var(--foreground)] hover:bg-[var(--background)]/75 hover:border-[var(--border)]'
                     } ${!isConfigured ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-black/35 border border-white/10">
+                      <div
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border"
+                        style={{
+                          background: 'color-mix(in srgb, var(--card) 80%, transparent)',
+                          borderColor: 'var(--border)',
+                        }}
+                      >
                         {getProviderIcon(m.provider)}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="font-semibold truncate text-[12.5px] leading-tight">{m.name}</div>
-                        <div className="text-[10px] text-neutral-400 truncate leading-tight">
-                          {formatProviderLabel(m.provider)}
-                          {m.tier && m.tier !== 'auto' ? ` · ${m.tier.replace('_', ' ')}` : ''}
+                        <div className="font-semibold truncate text-[12.5px] leading-tight text-[var(--foreground)]">
+                          {m.name}
+                        </div>
+                        <div className="text-[10px] text-[var(--muted-foreground)] truncate leading-tight">
+                          {formatProviderLabel(m.provider)} · {tierLabel}
                         </div>
                       </div>
                     </div>
                     {isSelected && (
-                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-400 text-slate-950">
+                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-white">
                         <Check className="h-3 w-3 stroke-[3]" />
                       </div>
                     )}
@@ -343,10 +376,13 @@ export function ModelSelector({
         ) : (
           /* Unified Stable Two-Pane Layout */
           <div className="grid grid-cols-[148px_1fr] sm:grid-cols-[164px_1fr] gap-2.5 h-[258px]">
-            {/* Left Rail: Categories */}
-            <div className="flex flex-col gap-1 border-r border-white/[0.08] pr-2 overflow-y-auto custom-scrollbar">
-              <div className="px-1.5 pt-0.5 pb-0.5 text-[10px] font-medium text-neutral-400">
-                Gemini
+            {/* Left Rail: Tiers */}
+            <div
+              className="flex flex-col gap-1 border-r pr-2 overflow-y-auto custom-scrollbar"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <div className="px-1.5 pt-0.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                Tiers
               </div>
 
               {geminiAutoModel && (
@@ -362,12 +398,12 @@ export function ModelSelector({
                       onClose();
                     }
                   }}
-                  className={`flex h-[34px] w-full items-center justify-between rounded-xl px-2 text-left text-[11.5px] font-medium border transition-colors ${
+                  className={`flex h-[36px] w-full items-center justify-between rounded-xl px-2 text-left text-[11.5px] font-medium border transition-colors ${
                     activePane === 'auto'
-                      ? 'bg-sky-500/20 border-sky-400/40 text-white'
+                      ? 'border-[var(--accent)]/50 bg-[var(--accent)]/15 text-[var(--foreground)] font-semibold'
                       : currentProvider === 'gemini' && currentModelId === 'gemini-auto'
-                      ? 'bg-white/[0.09] border-white/15 text-white'
-                      : 'bg-transparent border-transparent text-neutral-300 hover:bg-white/[0.07]'
+                      ? 'border-[var(--border)] bg-[var(--background)]/65 text-[var(--foreground)]'
+                      : 'border-transparent bg-transparent text-[var(--muted-foreground)] hover:bg-[var(--background)]/55 hover:text-[var(--foreground)]'
                   } ${!geminiConfigured ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'}`}
                 >
                   <span className="flex items-center gap-2 truncate">
@@ -375,79 +411,48 @@ export function ModelSelector({
                     <span className="truncate">Gemini Auto</span>
                   </span>
                   {currentProvider === 'gemini' && currentModelId === 'gemini-auto' && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-sky-400 shrink-0" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] shrink-0" />
                   )}
                 </button>
               )}
 
-              {GEMINI_TIERS.map((tier) => {
-                const list = geminiTierModels[tier.key];
+              {MODEL_TIERS.map((tier) => {
+                const list = tierModels[tier.key];
                 if (list.length === 0) return null;
-                const isSelectedInTier =
-                  currentProvider === 'gemini' && list.some((m) => m.id === currentModelId);
+                const isSelectedInTier = list.some(
+                  (m) => m.provider === currentProvider && m.id === currentModelId,
+                );
                 const isActive = activePane === tier.key;
 
                 return (
                   <button
                     key={tier.key}
                     type="button"
-                    disabled={!geminiConfigured}
                     onMouseEnter={() => schedulePane(tier.key)}
                     onClick={() => {
                       clearHoverTimer();
                       setActivePane(tier.key);
                     }}
-                    className={`flex h-[34px] w-full items-center justify-between rounded-xl px-2 text-left text-[11.5px] font-medium border transition-colors ${
+                    className={`flex h-[36px] w-full items-center justify-between rounded-xl px-2 text-left text-[11.5px] font-medium border transition-colors cursor-pointer ${
                       isActive
-                        ? 'bg-white/[0.13] border-white/25 text-white'
+                        ? 'border-[var(--border)] bg-[var(--background)]/75 text-[var(--foreground)] font-semibold shadow-sm'
                         : isSelectedInTier
-                        ? 'bg-white/[0.07] border-white/15 text-neutral-100'
-                        : 'bg-transparent border-transparent text-neutral-300 hover:bg-white/[0.07]'
-                    } ${!geminiConfigured ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'}`}
+                        ? 'border-[var(--border)]/70 bg-[var(--background)]/45 text-[var(--foreground)]'
+                        : 'border-transparent bg-transparent text-[var(--muted-foreground)] hover:bg-[var(--background)]/55 hover:text-[var(--foreground)]'
+                    }`}
                   >
                     <span className="flex items-center gap-2 min-w-0">
                       <span className="shrink-0">{getPaneIcon(tier.key)}</span>
                       <span className="truncate">{tier.shortLabel}</span>
                     </span>
-                    <span className="flex items-center gap-1 shrink-0 text-neutral-400">
-                      {isSelectedInTier && <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />}
+                    <span className="flex items-center gap-1 shrink-0 text-[var(--muted-foreground)]">
+                      {isSelectedInTier && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />}
+                      <span className="text-[10px] tabular-nums">{list.length}</span>
                       <ChevronRight className="h-3 w-3 opacity-70" />
                     </span>
                   </button>
                 );
               })}
-
-              {otherModels.length > 0 && (
-                <>
-                  <div className="my-1 border-t border-white/[0.08]" />
-                  <button
-                    type="button"
-                    onMouseEnter={() => schedulePane('others')}
-                    onClick={() => {
-                      clearHoverTimer();
-                      setActivePane('others');
-                    }}
-                    className={`flex h-[34px] w-full items-center justify-between rounded-xl px-2 text-left text-[11.5px] font-medium border transition-colors ${
-                      activePane === 'others'
-                        ? 'bg-white/[0.13] border-white/25 text-white'
-                        : currentProvider !== 'gemini'
-                        ? 'bg-white/[0.07] border-white/15 text-neutral-100'
-                        : 'bg-transparent border-transparent text-neutral-300 hover:bg-white/[0.07]'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2 min-w-0">
-                      <span className="shrink-0">{getPaneIcon('others')}</span>
-                      <span className="truncate">Other AI</span>
-                    </span>
-                    <span className="flex items-center gap-1 shrink-0 text-neutral-400">
-                      {currentProvider !== 'gemini' && (
-                        <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
-                      )}
-                      <span className="text-[10px]">{otherModels.length}</span>
-                    </span>
-                  </button>
-                </>
-              )}
             </div>
 
             {/* Right Pane: Locked Stationary Selection Area */}
@@ -458,8 +463,8 @@ export function ModelSelector({
               {activePane === 'auto' && geminiAutoModel ? (
                 <div className="flex flex-col h-full justify-between p-1">
                   <div>
-                    <div className="text-[12.5px] font-semibold text-white">Gemini Auto</div>
-                    <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+                    <div className="text-[12.5px] font-semibold text-[var(--foreground)]">Gemini Auto</div>
+                    <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
                       Automatically picks the fastest or deepest Gemini model based on your query and healthy free-tier quota.
                     </p>
                     <button
@@ -471,37 +476,46 @@ export function ModelSelector({
                           onClose();
                         }
                       }}
-                      className={`mt-3 flex h-[44px] w-full items-center justify-between rounded-xl px-3 border transition-colors ${
+                      className={`mt-3 flex h-[44px] w-full items-center justify-between rounded-xl px-3 border transition-colors cursor-pointer ${
                         currentProvider === 'gemini' && currentModelId === 'gemini-auto'
-                          ? 'bg-sky-500/20 border-sky-400/50 text-white'
-                          : 'bg-white/[0.07] border-white/15 text-white hover:bg-sky-500/15 hover:border-sky-400/40'
+                          ? 'border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--foreground)]'
+                          : 'border-[var(--border)] bg-[var(--background)]/60 text-[var(--foreground)] hover:bg-[var(--accent)]/10 hover:border-[var(--accent)]/50'
                       }`}
                     >
                       <span className="flex items-center gap-2.5 text-[12.5px] font-semibold">
-                        <Wand2 className="h-4 w-4 text-sky-300" />
+                        <Wand2 className="h-4 w-4 text-sky-500 dark:text-sky-400" />
                         Use Smart Auto Router
                       </span>
                       {currentProvider === 'gemini' && currentModelId === 'gemini-auto' && (
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-400 text-slate-950">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent)] text-white">
                           <Check className="h-3 w-3 stroke-[3]" />
                         </div>
                       )}
                     </button>
                   </div>
 
-                  <div className="rounded-xl border border-white/[0.07] bg-black/25 px-2.5 py-2 text-[10.5px] text-neutral-400">
-                    Or hover/click a tier on the left to pick a manual Gemini model.
+                  <div
+                    className="rounded-xl border px-2.5 py-2 text-[10.5px] text-[var(--muted-foreground)]"
+                    style={{
+                      background: 'color-mix(in srgb, var(--background) 50%, transparent)',
+                      borderColor: 'var(--border)',
+                    }}
+                  >
+                    Or hover/click a tier on the left to pick any model manually.
                   </div>
                 </div>
-              ) : activePane === 'others' ? (
+              ) : activeTierInfo ? (
                 <div className="flex flex-col h-full">
                   <div className="px-1 pb-2">
-                    <div className="text-[12px] font-semibold text-white">Other Providers</div>
-                    <div className="text-[10px] text-neutral-400">Groq, OpenRouter, Cohere &amp; NVIDIA</div>
+                    <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--foreground)]">
+                      {getPaneIcon(activeTierInfo.key)}
+                      <span>{activeTierInfo.label}</span>
+                    </div>
+                    <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{activeTierInfo.hint}</div>
                   </div>
                   <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
-                    {otherModels.map((m) => {
-                      const isSelected = m.id === currentModelId && m.provider === currentProvider;
+                    {tierModels[activeTierInfo.key].map((m) => {
+                      const isSelected = currentProvider === m.provider && currentModelId === m.id;
                       const isConfigured = configuredMap.get(m.provider) ?? false;
                       return (
                         <button
@@ -514,61 +528,26 @@ export function ModelSelector({
                               onClose();
                             }
                           }}
-                          className={`flex h-[40px] w-full items-center justify-between rounded-xl px-2.5 text-left border transition-colors ${
+                          className={`flex h-[44px] w-full items-center justify-between rounded-xl px-3 text-left border transition-colors ${
                             isSelected
-                              ? 'bg-sky-500/20 border-sky-400/45 text-white'
-                              : 'bg-white/[0.04] border-transparent text-neutral-200 hover:bg-white/[0.11] hover:border-white/15'
+                              ? 'border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--foreground)] font-semibold'
+                              : 'border-[var(--border)]/70 bg-[var(--background)]/55 text-[var(--foreground)] hover:bg-[var(--background)]/85 hover:border-[var(--border)]'
                           } ${!isConfigured ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'}`}
                         >
-                          <div className="min-w-0 flex-1 pr-2">
-                            <div className="text-[12px] font-semibold truncate">{m.name}</div>
-                            <div className="text-[10px] text-neutral-400 truncate">
-                              {formatProviderLabel(m.provider)}
-                              {!isConfigured ? ' · Unconfigured' : ''}
+                          <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
+                            <span className="shrink-0">{getProviderIcon(m.provider)}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[12.5px] font-medium truncate leading-tight text-[var(--foreground)]">
+                                {m.name}
+                              </div>
+                              <div className="text-[10px] text-[var(--muted-foreground)] truncate leading-tight">
+                                {formatProviderLabel(m.provider)}
+                                {!isConfigured ? ' · Unconfigured' : ''}
+                              </div>
                             </div>
                           </div>
                           {isSelected && (
-                            <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-sky-400 text-slate-950">
-                              <Check className="h-2.5 w-2.5 stroke-[3]" />
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : activeTierInfo ? (
-                <div className="flex flex-col h-full">
-                  <div className="px-1 pb-2">
-                    <div className="flex items-center gap-1.5 text-[12px] font-semibold text-white">
-                      {getPaneIcon(activeTierInfo.key)}
-                      <span>{activeTierInfo.label}</span>
-                    </div>
-                    <div className="text-[10px] text-neutral-400 mt-0.5">{activeTierInfo.hint}</div>
-                  </div>
-                  <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
-                    {geminiTierModels[activeTierInfo.key].map((m) => {
-                      const isSelected = currentProvider === 'gemini' && currentModelId === m.id;
-                      return (
-                        <button
-                          type="button"
-                          key={m.id}
-                          disabled={!geminiConfigured}
-                          onClick={() => {
-                            if (geminiConfigured) {
-                              onSelectModel('gemini', m.id);
-                              onClose();
-                            }
-                          }}
-                          className={`flex h-[42px] w-full items-center justify-between rounded-xl px-3 text-left border transition-colors ${
-                            isSelected
-                              ? 'bg-sky-500/20 border-sky-400/45 text-white font-semibold'
-                              : 'bg-white/[0.05] border-white/[0.06] text-neutral-100 hover:bg-white/[0.12] hover:border-white/20'
-                          } ${!geminiConfigured ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'}`}
-                        >
-                          <span className="text-[12.5px] font-medium truncate">{m.name}</span>
-                          {isSelected && (
-                            <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-sky-400 text-slate-950">
+                            <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-white">
                               <Check className="h-2.5 w-2.5 stroke-[3]" />
                             </div>
                           )}

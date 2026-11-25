@@ -31,7 +31,6 @@ export type Conversation = {
 };
 
 export type ServerEvent = { event: string; data: Record<string, unknown> };
-export type TTSResponse = { audio_base64: string; audio_mime_type: string };
 
 export const API = '/api/v1';
 

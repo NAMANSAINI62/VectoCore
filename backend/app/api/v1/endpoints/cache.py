@@ -7,9 +7,10 @@ from typing import Any, Optional
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import case, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cache.redis_client import exact_cache_clear_owner
 from app.database.session import get_db_session
 from app.dependencies.auth import get_current_user
 from app.models.cache import CacheEntry, CacheSettings, CacheTelemetry
@@ -123,9 +124,6 @@ class TelemetryItemResponse(BaseModel):
     translation_latency_ms: int = 0
     error_type: Optional[str] = None
     error_message: Optional[str] = None
-    memory_context_tokens: int = 0
-    memory_summary_included: bool = False
-    memory_window_size: int = 0
     semantic_match_insights: Optional[SemanticMatchInsightsResponse] = None
     created_at: datetime
     model_config = {"from_attributes": True}
@@ -215,11 +213,12 @@ class CacheStatsResponse(BaseModel):
     model_usage: list[ModelUsageStat] = []
     latency_buckets: list[LatencyBucketStat] = []
     embedding_model_info: Optional[EmbeddingModelInfo] = None
+    first_request_date: Optional[str] = None
 
 
 class CacheSettingsPayload(BaseModel):
-    similarity_threshold: float = Field(ge=0.50, le=0.99, default=DEFAULT_SIMILARITY_THRESHOLD)
-    default_ttl_hours: int = Field(ge=1, le=720, default=DEFAULT_CACHE_TTL_HOURS)
+    similarity_threshold: float = Field(ge=0.70, le=0.99, default=DEFAULT_SIMILARITY_THRESHOLD)
+    default_ttl_hours: int = Field(ge=1, le=48, default=DEFAULT_CACHE_TTL_HOURS)
 
 
 class CacheSettingsResponse(BaseModel):
@@ -419,6 +418,18 @@ async def delete_cache_entry(
 
     await db.delete(entry)
     await db.commit()
+
+
+@router.delete("/entries", status_code=status.HTTP_200_OK)
+async def clear_cache_entries(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict[str, int]:
+    """Delete all cached entries owned by the authenticated user."""
+    result = await db.execute(delete(CacheEntry).where(CacheEntry.owner_id == user.id))
+    await db.commit()
+    await exact_cache_clear_owner(str(user.id))
+    return {"deleted": int(getattr(result, "rowcount", 0) or 0)}
 
 
 @router.get("/stats", response_model=CacheStatsResponse)
@@ -740,6 +751,12 @@ async def get_cache_stats(
 
         recent_activity.append(item_resp)
 
+    earliest_dt = await db.scalar(
+        select(func.min(CacheTelemetry.created_at)).where(CacheTelemetry.owner_id == user.id)
+    )
+    fallback_dt = earliest_dt or getattr(user, "created_at", None)
+    first_request_date = fallback_dt.date().isoformat() if fallback_dt is not None else None
+
     return CacheStatsResponse(
         total_requests=total_requests,
         cache_hits=cache_hits,
@@ -785,6 +802,7 @@ async def get_cache_stats(
             dimensions=DEFAULT_EMBEDDING_DIM,
             status="active",
         ),
+        first_request_date=first_request_date,
     )
 
 

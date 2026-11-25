@@ -6,6 +6,8 @@ import {
   useGetCacheStatsQuery,
   useGetModelsQuery,
 } from '@/store/cacheApi';
+import { useAppSelector } from '@/store';
+import { buildDateRangeQueryParams } from '@/store/dateRangeSlice';
 import {
   Activity,
   Cpu,
@@ -29,7 +31,7 @@ const RANGE_OPTIONS = [
 ];
 
 export default function ModelsPage() {
-  const [selectedDays, setSelectedDays] = useState<number | undefined>(30);
+  const { selectedDays, appliedCustom } = useAppSelector((state) => state.dateRange);
   const [refreshSpin, setRefreshSpin] = useState(false);
   const [providerFilter, setProviderFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
@@ -40,13 +42,18 @@ export default function ModelsPage() {
     refetch: refetchModels,
   } = useGetModelsQuery(undefined, { refetchOnMountOrArgChange: true });
 
+  const queryParams = useMemo(
+    () => buildDateRangeQueryParams(selectedDays, appliedCustom),
+    [selectedDays, appliedCustom],
+  );
+
   const {
     data: stats,
     isLoading: statsLoading,
     isError: statsError,
     isFetching,
     refetch,
-  } = useGetCacheStatsQuery(selectedDays ? { days: selectedDays } : undefined, {
+  } = useGetCacheStatsQuery(queryParams, {
     pollingInterval: 5000,
     refetchOnMountOrArgChange: true,
   });
@@ -148,34 +155,6 @@ export default function ModelsPage() {
           <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
             Active provider roster, cache efficiency, latency, and token consumption per model.
           </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div
-            role="group"
-            aria-label="Date range"
-            className="inline-flex items-center gap-1 p-1 rounded-lg border"
-            style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-          >
-            {RANGE_OPTIONS.map((opt) => {
-              const active = selectedDays === opt.days;
-              return (
-                <button
-                  key={opt.label}
-                  type="button"
-                  onClick={() => setSelectedDays(opt.days)}
-                  className="px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer"
-                  style={
-                    active
-                      ? { backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }
-                      : { color: 'var(--muted-foreground)' }
-                  }
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
         </div>
       </div>
 

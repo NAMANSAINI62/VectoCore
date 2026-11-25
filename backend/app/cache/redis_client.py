@@ -155,6 +155,37 @@ async def exact_cache_set(key: str, value: str, ex_seconds: Optional[int] = None
         logger.debug(f"Redis set failed ({type(exc).__name__}), entering cooldown: {exc}")
 
 
+async def exact_cache_clear_owner(owner_id: str) -> int:
+    """Delete all exact-cache entries belonging to an owner from local cache and Redis."""
+    prefix = f"llm:exact:v1:{owner_id}:"
+    removed = 0
+    for k in [key for key in list(_local_memory_cache.keys()) if key.startswith(prefix)]:
+        _local_memory_cache.pop(k, None)
+        removed += 1
+
+    now = asyncio.get_event_loop().time()
+    if not _redis_available(now):
+        return removed
+
+    try:
+        client = get_redis_client()
+        cursor = 0
+        while True:
+            cursor, keys = await _run_redis_op(
+                lambda c=cursor: client.scan(cursor=c, match=f"{prefix}*", count=200),
+                timeout=0.5,
+            )
+            if keys:
+                await _run_redis_op(lambda ks=keys: client.delete(*ks), timeout=0.5)
+                removed += len(keys)
+            if not cursor or cursor == 0:
+                break
+    except Exception as exc:
+        logger.debug(f"Redis clear failed ({type(exc).__name__}): {exc}")
+
+    return removed
+
+
 async def close_redis_connection() -> None:
     """Close active Redis client connection pool."""
     global _redis_client
@@ -211,42 +242,3 @@ async def release_cache_lock(lock_key: str) -> None:
                 await _run_redis_op(lambda: client.delete(lock_key), timeout=0.25)
     except Exception:
         pass
-
-
-async def memory_cache_get(key: str) -> Optional[str]:
-    """Read serialized short-term memory window from Redis, failing open with a warning."""
-    try:
-        now = asyncio.get_running_loop().time()
-        if not _redis_available(now):
-            logger.warning("Short-term memory Redis read skipped (circuit open); falling back to PostgreSQL.")
-            return None
-        client = get_redis_client()
-        return await _run_redis_op(lambda: client.get(key), timeout=0.25)
-    except Exception as exc:
-        logger.warning("Short-term memory Redis read failed (%s); falling back to PostgreSQL.", type(exc).__name__)
-        return None
-
-
-async def memory_cache_set(key: str, value: str, ex_seconds: int) -> None:
-    """Write serialized short-term memory window to Redis with TTL, failing open with a warning."""
-    try:
-        now = asyncio.get_running_loop().time()
-        if not _redis_available(now):
-            logger.warning("Short-term memory Redis write skipped (circuit open).")
-            return
-        client = get_redis_client()
-        await _run_redis_op(lambda: client.set(key, value, ex=ex_seconds), timeout=0.25)
-    except Exception as exc:
-        logger.warning("Short-term memory Redis write failed (%s).", type(exc).__name__)
-
-
-async def memory_cache_delete(key: str) -> None:
-    """Invalidate a conversation's short-term memory key in Redis, failing open with a warning."""
-    try:
-        now = asyncio.get_running_loop().time()
-        if not _redis_available(now):
-            return
-        client = get_redis_client()
-        await _run_redis_op(lambda: client.delete(key), timeout=0.25)
-    except Exception as exc:
-        logger.warning("Short-term memory Redis delete failed (%s).", type(exc).__name__)

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 
-export type AppTheme = 'mint' | 'sage' | 'mocha';
+export type AppTheme = 'mint' | 'sage' | 'mocha' | 'lavender' | 'glacier';
 
 export type ThemeOption = {
   id: AppTheme;
@@ -15,7 +15,9 @@ export type ThemeOption = {
 export const THEME_OPTIONS: ThemeOption[] = [
   { id: 'mint', label: 'Botanical Ink', swatch: '#E5EFE9', secondarySwatch: '#FFFFFF', accentSwatch: '#0D9488' },
   { id: 'sage', label: 'Sage Paper', swatch: '#9CAF88', secondarySwatch: '#F7F5EF', accentSwatch: '#E8412C' },
-  { id: 'mocha', label: 'Mocha Cream', swatch: '#F2E8DA', secondarySwatch: '#3B2418', accentSwatch: '#2C74B3' },
+  { id: 'mocha', label: 'Mocha Cream', swatch: '#F2E8DA', secondarySwatch: '#E8DBC8', accentSwatch: '#2C74B3' },
+  { id: 'lavender', label: 'Lavender Cloud', swatch: '#F2EFFB', secondarySwatch: '#E3DDF7', accentSwatch: '#6D4AFF' },
+  { id: 'glacier', label: 'Glacier Sky', swatch: '#EAF4FC', secondarySwatch: '#D6E9F8', accentSwatch: '#0284C7' },
 ];
 
 const STORAGE_KEY = 'vector_cache_theme';

@@ -1,7 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useGetCacheStatsQuery } from '@/store/cacheApi';
+import { useAppSelector } from '@/store';
+import { buildDateRangeQueryParams } from '@/store/dateRangeSlice';
 import { OverviewHero } from '@/components/dashboard/OverviewHero';
 import { DashboardKpiGrid } from '@/components/dashboard/DashboardKpiGrid';
 import { QuickNavCards } from '@/components/dashboard/QuickNavCards';
@@ -13,7 +15,12 @@ import {
 } from '@/components/charts';
 
 export default function OverviewPage() {
-  const { data: stats, isLoading, isError } = useGetCacheStatsQuery(undefined, {
+  const { selectedDays, appliedCustom } = useAppSelector((state) => state.dateRange);
+  const queryParams = useMemo(
+    () => buildDateRangeQueryParams(selectedDays, appliedCustom),
+    [selectedDays, appliedCustom],
+  );
+  const { data: stats, isLoading, isError } = useGetCacheStatsQuery(queryParams, {
     pollingInterval: 5000,
     refetchOnMountOrArgChange: true,
   });

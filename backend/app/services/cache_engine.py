@@ -673,9 +673,6 @@ class SemanticCacheEngine:
         validation_explanation: str | None = None,
         error_type: str | None = None,
         error_message: str | None = None,
-        memory_context_tokens: int = 0,
-        memory_summary_included: bool = False,
-        memory_window_size: int = 0,
     ) -> None:
         """Save real request telemetry."""
         if detected_language is None or requested_language is None:
@@ -724,9 +721,6 @@ class SemanticCacheEngine:
             cache_lookup_latency_ms=lookup_latency_ms,
             llm_latency_ms=llm_latency_ms,
             latency_saved_ms=latency_saved_ms,
-            memory_context_tokens=memory_context_tokens,
-            memory_summary_included=memory_summary_included,
-            memory_window_size=memory_window_size,
         )
         self.db.add(telemetry)
         await self.db.commit()
