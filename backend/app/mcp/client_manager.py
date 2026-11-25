@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import shutil
+import sys
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any
@@ -105,8 +108,11 @@ class MCPClientManager:
 
             if not cfg.command:
                 raise ValueError(f"MCP stdio server '{cfg.name}' requires 'command'.")
+            resolved_cmd = cfg.command
+            if not shutil.which(resolved_cmd) and not os.path.exists(resolved_cmd):
+                resolved_cmd = sys.executable
             params = StdioServerParameters(
-                command=cfg.command,
+                command=resolved_cmd,
                 args=cfg.args,
                 env=build_minimal_child_env(cfg.allowed_env_vars),
             )
