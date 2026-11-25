@@ -1,6 +1,7 @@
 # Environments & Dependencies
 .env
 .env.local
+.env.render
 .env.*.local
 *.env
 backend/requirements.lock.txt
