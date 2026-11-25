@@ -110,6 +110,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = ""
     SMTP_USE_TLS: bool = True
+    BREVO_API_KEY: str = ""
     EMAIL_OTP_EXPIRE_MINUTES: int = 5
     EMAIL_OTP_MAX_ATTEMPTS: int = 5
     EMAIL_OTP_RESEND_COOLDOWN_SECONDS: int = 30

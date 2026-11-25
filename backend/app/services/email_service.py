@@ -1,18 +1,47 @@
-"""SMTP email delivery service for passwordless OTP sign-in (Gmail App Password compatible)."""
+"""Email delivery service for passwordless OTP sign-in (Brevo HTTPS API + SMTP fallback)."""
 
 import asyncio
 import logging
 import smtplib
 from email.message import EmailMessage
+import httpx
 from app.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 
 def is_smtp_configured() -> bool:
-    """Return True when SMTP host, user, and password are configured."""
+    """Return True when Brevo HTTPS API or SMTP credentials are configured."""
     settings = get_settings()
+    if settings.BREVO_API_KEY.strip() and (settings.SMTP_FROM_EMAIL or settings.SMTP_USER).strip():
+        return True
     return bool(settings.SMTP_HOST.strip() and settings.SMTP_USER.strip() and settings.SMTP_PASSWORD.strip())
+
+
+async def _send_brevo_https(to_email: str, subject: str, text_body: str, html_body: str) -> None:
+    settings = get_settings()
+    sender_email = (settings.SMTP_FROM_EMAIL or settings.SMTP_USER).strip()
+    if "<" in sender_email and ">" in sender_email:
+        sender_email = sender_email.split("<", 1)[1].split(">", 1)[0].strip()
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "api-key": settings.BREVO_API_KEY.strip(),
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            json={
+                "sender": {"name": "VectoCore", "email": sender_email},
+                "to": [{"email": to_email}],
+                "subject": subject,
+                "textContent": text_body,
+                "htmlContent": html_body,
+            },
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Brevo API error ({resp.status_code}): {resp.text[:300]}")
 
 
 def _send_smtp_sync(to_email: str, subject: str, text_body: str, html_body: str) -> None:
@@ -70,5 +99,11 @@ async def send_otp_email(
       </p>
     </div>
     """
+    settings = get_settings()
+    if settings.BREVO_API_KEY.strip():
+        await _send_brevo_https(to_email, subject, text_body, html_body)
+        logger.info("Sent %s OTP email via Brevo HTTPS API to %s", purpose, to_email)
+        return
+
     await asyncio.to_thread(_send_smtp_sync, to_email, subject, text_body, html_body)
     logger.info("Sent %s OTP email via SMTP to %s", purpose, to_email)
