@@ -49,8 +49,9 @@ export default function AnalyticsPage() {
     isLoading,
     isError,
   } = useGetCacheStatsQuery(queryParams, {
-    pollingInterval: 5000,
-    refetchOnMountOrArgChange: true,
+    pollingInterval: 30000,
+    skipPollingIfUnfocused: true,
+    refetchOnMountOrArgChange: 15,
   });
 
   const { data: activeModels = [] } = useGetModelsQuery();

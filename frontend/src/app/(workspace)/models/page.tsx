@@ -54,8 +54,9 @@ export default function ModelsPage() {
     isFetching,
     refetch,
   } = useGetCacheStatsQuery(queryParams, {
-    pollingInterval: 5000,
-    refetchOnMountOrArgChange: true,
+    pollingInterval: 30000,
+    skipPollingIfUnfocused: true,
+    refetchOnMountOrArgChange: 15,
   });
 
   const handleRefresh = async () => {

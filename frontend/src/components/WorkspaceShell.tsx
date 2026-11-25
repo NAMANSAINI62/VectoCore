@@ -21,6 +21,7 @@ import {
 import { useAuth } from '@/features/auth/provider';
 import { THEME_OPTIONS, useTheme } from '@/components/ThemeProvider';
 import { DateRangeFilter } from '@/components/analytics/DateRangeFilter';
+import { WorkspaceShellSkeleton } from '@/components/PageSkeleton';
 import { useGetCacheStatsQuery } from '@/store/cacheApi';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { setCustomDateRange, setDatePreset } from '@/store/dateRangeSlice';
@@ -107,11 +108,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   }, [loading, router, user]);
 
   if (loading || !user) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--background)] text-sm text-[var(--muted-foreground)]">
-        Checking sign-in…
-      </div>
-    );
+    return <WorkspaceShellSkeleton />;
   }
 
   return (
@@ -183,6 +180,21 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </header>
+
+      {/* Mobile & Tablet Date Range Bar for Overview */}
+      {isOverview && (
+        <div className="border-b border-[var(--border)] bg-[var(--card)]/85 px-3 py-2 backdrop-blur sm:px-6 lg:hidden">
+          <div className="mx-auto flex max-w-[1440px] items-center justify-end">
+            <DateRangeFilter
+              selectedDays={selectedDays}
+              appliedCustom={appliedCustom}
+              defaultStartDate={statsData?.first_request_date}
+              onSelectPreset={(days) => dispatch(setDatePreset(days))}
+              onApplyCustom={(range) => dispatch(setCustomDateRange(range))}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Main Content Canvas */}
       <main

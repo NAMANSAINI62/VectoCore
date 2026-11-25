@@ -21,8 +21,9 @@ export default function OverviewPage() {
     [selectedDays, appliedCustom],
   );
   const { data: stats, isLoading, isError } = useGetCacheStatsQuery(queryParams, {
-    pollingInterval: 5000,
-    refetchOnMountOrArgChange: true,
+    pollingInterval: 30000,
+    skipPollingIfUnfocused: true,
+    refetchOnMountOrArgChange: 15,
   });
   const trends = stats?.daily_trends ?? [];
 

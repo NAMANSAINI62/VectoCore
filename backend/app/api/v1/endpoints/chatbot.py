@@ -577,8 +577,49 @@ async def transcribe_audio(
     )
 
 
+_FIXED_EDGE_TTS_VOICE = "en-US-EmmaMultilingualNeural"
+_FIXED_EDGE_TTS_RATE = "-4%"
 _FIXED_GROQ_TTS_VOICE = "diana"
 _FIXED_GEMINI_TTS_VOICE = "Kore"
+_groq_tts_cooldown_until: float = 0.0
+
+
+async def _synthesize_edge_tts(text: str) -> bytes | None:
+    """Primary TTS via Microsoft Edge Neural TTS (EmmaMultilingualNeural: soft, natural pauses, EN/HI/Hinglish)."""
+    try:
+        import edge_tts  # type: ignore[import-untyped]
+    except Exception as exc:
+        logger.warning("edge-tts package unavailable: %s", exc)
+        return None
+
+    async def _collect() -> bytes:
+        communicate = edge_tts.Communicate(
+            text=text,
+            voice=_FIXED_EDGE_TTS_VOICE,
+            rate=_FIXED_EDGE_TTS_RATE,
+        )
+        chunks: list[bytes] = []
+        async for chunk in communicate.stream():
+            if chunk.get("type") == "audio" and chunk.get("data"):
+                chunks.append(chunk["data"])
+        return b"".join(chunks)
+
+    for attempt in range(2):
+        try:
+            audio_bytes = await asyncio.wait_for(_collect(), timeout=15.0)
+            if len(audio_bytes) > 100:
+                return audio_bytes
+        except Exception as exc:
+            logger.warning(
+                "Edge TTS attempt %d failed (%s: %s)",
+                attempt + 1,
+                type(exc).__name__,
+                exc,
+            )
+            if attempt == 0:
+                await asyncio.sleep(0.3)
+    logger.warning("Edge TTS failed after 2 attempts; falling back to Groq/Gemini TTS.")
+    return None
 
 
 def _pcm16_to_wav(
@@ -661,22 +702,98 @@ async def _synthesize_gemini_tts(text: str) -> bytes | None:
     return None
 
 
+def _split_orpheus_chunks(text: str, max_chars: int = 190, max_chunks: int = 4) -> list[str]:
+    """Split text into <=190-char sentence chunks (Groq Orpheus hard limit is 200 chars)."""
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?।])\s+", text.strip()) if s.strip()]
+    chunks: list[str] = []
+    current = ""
+    for sentence in sentences:
+        if len(sentence) > max_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            words = sentence.split()
+            part = ""
+            for w in words:
+                candidate = f"{part} {w}".strip() if part else w
+                if len(candidate) > max_chars:
+                    if part:
+                        chunks.append(part)
+                    part = w[:max_chars]
+                else:
+                    part = candidate
+            if part:
+                current = part
+        elif current and len(current) + 1 + len(sentence) > max_chars:
+            chunks.append(current)
+            current = sentence
+        else:
+            current = f"{current} {sentence}".strip() if current else sentence
+        if len(chunks) >= max_chunks:
+            break
+    if current and len(chunks) < max_chunks:
+        chunks.append(current)
+    return chunks[:max_chunks] if chunks else [text[:max_chars]]
+
+
+def _concat_wavs(wav_blobs: list[bytes]) -> bytes:
+    """Concatenate multiple WAV buffers with identical PCM format into one valid RIFF/WAVE file."""
+    valid = [_fix_wav_header(w) for w in wav_blobs if w and len(w) > 44 and w[:4] == b"RIFF"]
+    if not valid:
+        return b""
+    if len(valid) == 1:
+        return valid[0]
+
+    # Read format metadata from the first WAV's fmt chunk
+    first = valid[0]
+    channels = struct.unpack_from("<H", first, 22)[0]
+    sample_rate = struct.unpack_from("<I", first, 24)[0]
+    bits_per_sample = struct.unpack_from("<H", first, 34)[0]
+
+    pcm_parts: list[bytes] = []
+    for wav in valid:
+        data_idx = wav.find(b"data", 12)
+        if data_idx != -1 and data_idx + 8 <= len(wav):
+            pcm_parts.append(wav[data_idx + 8 :])
+        else:
+            pcm_parts.append(wav[44:])
+
+    return _pcm16_to_wav(
+        b"".join(pcm_parts),
+        sample_rate=sample_rate or 24000,
+        channels=channels or 1,
+        bits_per_sample=bits_per_sample or 16,
+    )
+
+
 @router.post("/chat/tts")
 async def synthesize_speech(
     payload: TextToSpeechRequest,
     user: User = Depends(get_current_user),
 ) -> Response:
-    """Synthesize assistant read-aloud speech via Groq Orpheus TTS with Gemini TTS fallback."""
-    await RedisRateLimiter().check_endpoint_limit("chat_tts", str(user.id), limit_per_min=5)
+    """Synthesize assistant read-aloud speech via Edge Neural TTS (primary) with Groq Orpheus & Gemini TTS fallback."""
+    global _groq_tts_cooldown_until
+    await RedisRateLimiter().check_endpoint_limit("chat_tts", str(user.id), limit_per_min=60)
     api_key = (settings.GROQ_API_KEY or "").strip()
     cleaned = _clean_tts_text(payload.text)[:1000]
     if not cleaned:
         raise HTTPException(status_code=400, detail="Nothing speakable in message.")
 
+    # 1. Primary: Microsoft Edge Neural TTS (free, unlimited, fast, soft multilingual voice)
+    edge_mp3 = await _synthesize_edge_tts(cleaned)
+    if edge_mp3:
+        return Response(
+            content=edge_mp3,
+            media_type="audio/mpeg",
+            headers={"X-TTS-Provider": "edge-tts"},
+        )
+
     groq_resp: httpx.Response | None = None
     groq_timed_out = False
+    now = time.monotonic()
 
-    if api_key:
+    # Groq Orpheus has a hard 200-char limit and tight RPM; use it for <=200-char requests when not in 429 cooldown
+    if api_key and len(cleaned) <= 200 and now >= _groq_tts_cooldown_until:
         try:
             groq_resp = await _groq_audio_client.post(
                 "https://api.groq.com/openai/v1/audio/speech",
@@ -690,13 +807,17 @@ async def synthesize_speech(
                     "input": cleaned,
                     "response_format": "wav",
                 },
+                timeout=6.0,
             )
-            if groq_resp.status_code < 400:
+            if groq_resp.status_code < 400 and len(groq_resp.content) > 44:
                 return Response(
                     content=_fix_wav_header(groq_resp.content),
                     media_type="audio/wav",
                     headers={"X-TTS-Provider": "groq"},
                 )
+            if groq_resp.status_code == 429:
+                _groq_tts_cooldown_until = time.monotonic() + 45.0
+                logger.warning("Groq TTS returned 429; cooling down 45s and using Gemini TTS fallback.")
         except httpx.TimeoutException:
             groq_timed_out = True
             logger.warning("Groq TTS timed out; attempting Gemini TTS fallback.")
@@ -705,6 +826,8 @@ async def synthesize_speech(
 
     should_fallback = (
         not api_key
+        or len(cleaned) > 200
+        or now < _groq_tts_cooldown_until
         or groq_timed_out
         or groq_resp is None
         or groq_resp.status_code == 429

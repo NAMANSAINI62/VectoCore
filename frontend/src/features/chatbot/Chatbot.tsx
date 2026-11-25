@@ -556,14 +556,32 @@ export function Chatbot() {
   };
 
   const splitSpeechChunks = (text: string): string[] => {
-    const capped = text.slice(0, 1000).trim();
-    if (!capped) return [];
-    const sentences = capped.split(/(?<=[.!?])\s+/).filter(Boolean);
+    const cleaned = text.trim();
+    if (!cleaned) return [];
+    if (cleaned.length <= 200) return [cleaned];
+    const sentences = cleaned.split(/(?<=[.!?।])\s+/).filter(Boolean);
     const chunks: string[] = [];
     let current = '';
-    const maxLen = () => (chunks.length === 0 ? 220 : 400);
+    const maxLen = 200;
     for (const s of sentences) {
-      if (current && current.length + 1 + s.length > maxLen()) {
+      if (s.length > maxLen) {
+        if (current) {
+          chunks.push(current.trim());
+          current = '';
+        }
+        const words = s.split(/\s+/);
+        let part = '';
+        for (const w of words) {
+          const candidate = part ? `${part} ${w}` : w;
+          if (candidate.length > maxLen) {
+            if (part) chunks.push(part.trim());
+            part = w.slice(0, maxLen);
+          } else {
+            part = candidate;
+          }
+        }
+        if (part) current = part;
+      } else if (current && current.length + 1 + s.length > maxLen) {
         chunks.push(current.trim());
         current = s;
       } else {
@@ -571,7 +589,7 @@ export function Chatbot() {
       }
     }
     if (current.trim()) chunks.push(current.trim());
-    return chunks.length > 0 ? chunks : [capped.slice(0, 220)];
+    return chunks.length > 0 ? chunks : [cleaned.slice(0, 200)];
   };
 
   const fetchTtsUrl = async (chunk: string, voice: string): Promise<string> => {
@@ -582,8 +600,43 @@ export function Chatbot() {
       body: JSON.stringify({ text: chunk, voice }),
     });
     if (!res.ok) throw new Error(`TTS failed (${res.status})`);
-    const blob = await res.blob();
+    const buf = await res.arrayBuffer();
+    if (!buf || buf.byteLength < 44) {
+      throw new Error('Empty audio payload from TTS endpoint');
+    }
+    const mime = res.headers.get('content-type') || 'audio/wav';
+    const blob = new Blob([buf], { type: mime });
     return URL.createObjectURL(blob);
+  };
+
+  const speakWithBrowserFallback = (messageId: string, speakText: string) => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(speakText);
+      const voices = window.speechSynthesis.getVoices();
+      const naturalVoice =
+        voices.find((v) => /aria/i.test(v.name) && /^en/i.test(v.lang)) ||
+        voices.find((v) => /neerja|jenny|female|zira|samantha|victoria|karen|moira|tessa/i.test(v.name) && /natural|online|google/i.test(v.name) && /^en/i.test(v.lang)) ||
+        voices.find((v) => /natural|online|google/i.test(v.name) && /^en/i.test(v.lang)) ||
+        voices.find((v) => /^en/i.test(v.lang));
+      if (naturalVoice) utterance.voice = naturalVoice;
+      utterance.volume = 1.0;
+      utterance.rate = 0.95;
+      utterance.pitch = 1.0;
+      setPlayingId(messageId);
+      setPaused(false);
+      utterance.onend = () => {
+        setPlayingId(null);
+        setPaused(false);
+      };
+      utterance.onerror = () => {
+        setPlayingId(null);
+        setPaused(false);
+      };
+      window.speechSynthesis.speak(utterance);
+    } else {
+      setError('Text-to-speech is not supported in this browser.');
+    }
   };
 
   const toggleSpeech = async (item: Message) => {
@@ -600,16 +653,22 @@ export function Chatbot() {
     stopSpeech();
 
     const cleanSpeechText = item.content
-      .slice(0, 6000)
       .replace(/\[(\d+)\]\([^)]+\)/g, '')
       .replace(/https?:\/\/\S+/g, '')
       .replace(/[*_`#>~-]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    const speakText = cleanSpeechText || item.content.slice(0, 6000);
+    const speakText = cleanSpeechText || item.content.trim();
     if (!speakText) return;
 
     const sessionId = ++ttsSessionRef.current;
+
+    // Reuse or create the audio element synchronously inside the user click gesture
+    // so browsers never block playback after async network fetches.
+    const sharedAudio = audioRef.current ?? new Audio();
+    sharedAudio.volume = 1.0;
+    sharedAudio.muted = false;
+    audioRef.current = sharedAudio;
 
     const playUrlsSequentially = (urls: string[], index: number) => {
       if (ttsSessionRef.current !== sessionId || index >= urls.length) {
@@ -619,18 +678,20 @@ export function Chatbot() {
         }
         return;
       }
-      const audio = new Audio(urls[index]);
-      audioRef.current = audio;
-      audio.onended = () => playUrlsSequentially(urls, index + 1);
-      audio.onerror = () => {
-        setPlayingId(null);
-        setPaused(false);
+      sharedAudio.onended = () => playUrlsSequentially(urls, index + 1);
+      sharedAudio.onerror = () => {
+        if (ttsSessionRef.current === sessionId) {
+          speakWithBrowserFallback(item.id, speakText);
+        }
       };
+      sharedAudio.src = urls[index];
+      sharedAudio.load();
       setPlayingId(item.id);
       setPaused(false);
-      void audio.play().catch(() => {
-        setPlayingId(null);
-        setPaused(false);
+      void sharedAudio.play().catch(() => {
+        if (ttsSessionRef.current === sessionId) {
+          speakWithBrowserFallback(item.id, speakText);
+        }
       });
     };
 
@@ -652,17 +713,30 @@ export function Chatbot() {
       }
       setTtsLoadingId(null);
 
-      // Play chunk 1 immediately while prefetching remaining chunks in background
+      // Play chunk 1 immediately while prefetching ONLY the next chunk sequentially (1-ahead)
       const urls: string[] = [firstUrl];
-      const remainingPromises = chunks.slice(1).map((c) => fetchTtsUrl(c, activeVoice));
+      const inflight = new Map<number, Promise<string>>();
+
+      const ensureChunk = (idx: number): Promise<string> => {
+        if (urls[idx]) return Promise.resolve(urls[idx]);
+        const existing = inflight.get(idx);
+        if (existing) return existing;
+        const p = fetchTtsUrl(chunks[idx], activeVoice).then((u) => {
+          urls[idx] = u;
+          inflight.delete(idx);
+          return u;
+        });
+        inflight.set(idx, p);
+        return p;
+      };
 
       const playWithPrefetch = async (idx: number) => {
         if (ttsSessionRef.current !== sessionId) return;
-        const audio = new Audio(urls[idx]);
-        audioRef.current = audio;
-        setPlayingId(item.id);
-        setPaused(false);
-        audio.onended = async () => {
+        // Prefetch the very next chunk in the background while current chunk plays
+        if (idx + 1 < chunks.length) {
+          void ensureChunk(idx + 1).catch(() => {});
+        }
+        sharedAudio.onended = async () => {
           if (ttsSessionRef.current !== sessionId) return;
           const nextIdx = idx + 1;
           if (nextIdx >= chunks.length) {
@@ -671,65 +745,37 @@ export function Chatbot() {
             setPaused(false);
             return;
           }
-          if (!urls[nextIdx]) {
-            try {
-              urls[nextIdx] = await remainingPromises[nextIdx - 1];
-            } catch {
-              setPlayingId(null);
-              setPaused(false);
-              return;
-            }
+          try {
+            await ensureChunk(nextIdx);
+          } catch {
+            setPlayingId(null);
+            setPaused(false);
+            return;
           }
           void playWithPrefetch(nextIdx);
         };
-        audio.onerror = () => {
-          setPlayingId(null);
-          setPaused(false);
-        };
-        await audio.play();
-      };
-
-      void Promise.all(remainingPromises)
-        .then((rest) => {
+        sharedAudio.onerror = () => {
           if (ttsSessionRef.current === sessionId) {
-            rest.forEach((u, i) => {
-              urls[i + 1] = u;
-            });
-            ttsCacheRef.current.set(ttsCacheKey, urls);
+            speakWithBrowserFallback(item.id, speakText);
           }
-        })
-        .catch(() => {});
+        };
+        sharedAudio.src = urls[idx];
+        sharedAudio.load();
+        setPlayingId(item.id);
+        setPaused(false);
+        await sharedAudio.play();
+      };
 
       await playWithPrefetch(0);
       return;
     } catch {
-      // Fall back to browser speech synthesis if Groq TTS fails or quota is reached
+      // Fall back to browser speech synthesis if Groq/Gemini TTS fails or playback is blocked
     } finally {
       setTtsLoadingId(null);
     }
 
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(speakText);
-      const voices = window.speechSynthesis.getVoices();
-      const naturalVoice =
-        voices.find((v) => /aria/i.test(v.name) && /^en/i.test(v.lang)) ||
-        voices.find((v) => /neerja|jenny|female|zira|samantha|victoria|karen|moira|tessa/i.test(v.name) && /natural|online|google/i.test(v.name) && /^en/i.test(v.lang)) ||
-        voices.find((v) => /natural|online|google/i.test(v.name) && /^en/i.test(v.lang)) ||
-        voices.find((v) => /^en/i.test(v.lang));
-      if (naturalVoice) utterance.voice = naturalVoice;
-      utterance.volume = 1.0;
-      utterance.rate = 0.95;
-      utterance.pitch = 1.0;
-      setPlayingId(item.id);
-      setPaused(false);
-      utterance.onend = () => {
-        setPlayingId(null);
-        setPaused(false);
-      };
-      window.speechSynthesis.speak(utterance);
-    } else {
-      setError('Text-to-speech is not supported in this browser.');
+    if (ttsSessionRef.current === sessionId) {
+      speakWithBrowserFallback(item.id, speakText);
     }
   };
 

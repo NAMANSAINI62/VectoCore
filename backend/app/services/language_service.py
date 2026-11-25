@@ -53,14 +53,16 @@ _BILINGUAL_DIRECTIVE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Explicit single-language directive in English
+# Explicit single-language directive in English / Hinglish
 _SINGLE_DIRECTIVE_RE = re.compile(
     rf"(?:"
-    rf"(?:answer|reply|respond|explain|write|translate|output|give(?:\s+(?:me|the))?\s+(?:answer|response)|speak|summarize)"
+    rf"(?:answer|reply|respond|response|explain|write|translate|output|give(?:\s+(?:me|the))?\s+(?:answer|response)|speak|summarize)"
     rf"(?:\s+(?:this|it|everything|the\s+following(?:\s+\w+)?))?"
-    rf"\s+(?:in|into)\s+({_LANG_PATTERN})\b"
-    rf"|\b(?:in|into)\s+({_LANG_PATTERN})\s*(?:language|only)?\s*(?:please|plz)?[\.\!\?]*$"
-    rf"|\b({_LANG_PATTERN})\s+(?:mein|me)\s+(?:answer|reply|jawaab|jawab|uttar|batao|btao|samjhao|likho)\b"
+    rf"(?:\s+(?:should|must|needs?\s+to|has\s+to|will|ought\s+to)\s+be)?"
+    rf"(?:\s+(?:completely|strictly|purely|only|entirely))?"
+    rf"\s+(?:in|into)\s+(?:pure\s+|only\s+)?({_LANG_PATTERN})\b"
+    rf"|\b(?:completely|strictly|purely|only|entirely)?\s*(?:in|into)\s+(?:pure\s+)?({_LANG_PATTERN})\s*(?:language|only)?\s*(?:please|plz)?[\.\!\?]*$"
+    rf"|\b({_LANG_PATTERN})\s+(?:language\s+)?(?:mein|me)\s+(?:answer|reply|jawaab|jawab|uttar|batao|btao|samjhao|likho|do|dena|chahiye)\b"
     rf")",
     re.IGNORECASE,
 )

@@ -65,14 +65,21 @@ export function DateRangeFilter({
   const [viewYear, setViewYear] = useState(initialRef.year);
   const [viewMonth, setViewMonth] = useState(initialRef.month);
 
+  const appliedStart = appliedCustom?.start;
+  const appliedEnd = appliedCustom?.end;
+
   useEffect(() => {
-    if (appliedCustom) {
-      setCustomStart(appliedCustom.start || defaultStartDate || '');
-      setCustomEnd(appliedCustom.end || todayIso);
-    } else if (defaultStartDate && !customStart) {
-      setCustomStart(defaultStartDate);
+    if (appliedStart !== undefined || appliedEnd !== undefined) {
+      setCustomStart(appliedStart || defaultStartDate || '');
+      setCustomEnd(appliedEnd || todayIso);
     }
-  }, [appliedCustom, defaultStartDate, todayIso, customStart]);
+  }, [appliedStart, appliedEnd, defaultStartDate, todayIso]);
+
+  useEffect(() => {
+    if (appliedStart === undefined && appliedEnd === undefined && defaultStartDate) {
+      setCustomStart((prev) => prev || defaultStartDate);
+    }
+  }, [appliedStart, appliedEnd, defaultStartDate]);
 
   const [todayYear, todayMonth] = useMemo(() => {
     const [y, m] = todayIso.split('-').map(Number);
@@ -130,6 +137,7 @@ export function DateRangeFilter({
   const isDateDisabled = (iso: string): boolean => {
     if (minDate && iso < minDate) return true;
     if (iso > todayIso) return true;
+    if (pickingField === 'start' && customEnd && iso > customEnd) return true;
     if (pickingField === 'end' && customStart && iso < customStart) return true;
     return false;
   };
@@ -138,13 +146,8 @@ export function DateRangeFilter({
     if (isDateDisabled(iso)) return;
     if (pickingField === 'start') {
       setCustomStart(iso);
-      if (customEnd && customEnd < iso) {
-        setCustomEnd(iso);
-      }
-      setPickingField('end');
     } else {
-      const safeEnd = customStart && iso < customStart ? customStart : iso;
-      setCustomEnd(safeEnd);
+      setCustomEnd(iso);
     }
   };
 
@@ -201,7 +204,7 @@ export function DateRangeFilter({
         </PopoverButton>
 
         <PopoverPanel
-          className="absolute right-0 top-full z-40 mt-2 w-[268px] rounded-2xl border p-2.5 backdrop-blur-2xl focus:outline-none animate-in fade-in zoom-in-95 duration-150"
+          className="absolute right-0 top-full z-40 mt-2 w-[268px] max-w-[calc(100vw-1.5rem)] rounded-2xl border p-2.5 backdrop-blur-2xl focus:outline-none animate-in fade-in zoom-in-95 duration-150"
           style={{
             background: 'color-mix(in srgb, var(--card) 82%, transparent)',
             borderColor: 'var(--border)',

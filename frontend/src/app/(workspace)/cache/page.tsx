@@ -55,8 +55,9 @@ export default function CachePage() {
       language: language || undefined,
     },
     {
-      pollingInterval: 5000,
-      refetchOnMountOrArgChange: true,
+      pollingInterval: 30000,
+      skipPollingIfUnfocused: true,
+      refetchOnMountOrArgChange: 15,
     }
   );
 

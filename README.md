@@ -61,9 +61,10 @@ VectoCore is a single gateway that solves all three.
 | **Output guardrails** | Canary-token, secret, content-safety and PII scan of the model's reply before it is streamed or cached. |
 | **Rate limiting** | Redis sliding windows per user and per IP, a concurrent-stream cap and automatic abuse throttling. |
 | **MCP & tool-call firewall** | Deny-by-default tool firewall supporting live URL page fetch (`fetch__get_page`) and Tavily web search (`search__web_search` with news recency filtering and Result #1 → #2 → #3 fallback grounding) across all models, with strict Pydantic schemas (`extra="forbid"`), SSRF blocking, and TTL caching. |
-| **Multi-provider LLM routing & voice** | Gemini, Groq, NVIDIA NIM, Cohere and OpenRouter (11 models distributed across **Complex**, **Balanced**, and **Fast**) through LangGraph with automatic failover, plus **Groq Whisper** speech-to-text (`whisper-large-v3-turbo`) and chunked **Groq Orpheus** read-aloud TTS (`canopylabs/orpheus-v1-english`). |
+| **Multi-provider LLM routing & voice** | Gemini, Groq, NVIDIA NIM, Cohere and OpenRouter (11 models distributed across **Complex**, **Balanced**, and **Fast**) through LangGraph with automatic failover. Voice input uses **Groq Whisper** (`whisper-large-v3-turbo`) with Wispr Flow-style Hinglish polish (`openai/gpt-oss-20b`). Text-to-speech features a 4-tier resilient voice engine: **Microsoft Edge Neural TTS** (`en-US-EmmaMultilingualNeural`, soft, natural pauses across English/Hindi/Hinglish, 0 quota limit) as primary, with automatic failover to **Groq Orpheus** (`canopylabs/orpheus-v1-english`), **Gemini TTS** (`gemini-2.5-flash-preview-tts`), and browser **Web Speech API**. |
+| **Strict Language Intent Routing** | Automatic language detection with strict enforcement. When a user requests an answer in a specific language (e.g. *"Answer should be in Hindi language"*), Redis exact match and pgvector semantic cache only return hits if the cached response is in that exact requested language; otherwise it queries the LLM with strict pure-script prompts. |
 | **Conversation history** | Direct PostgreSQL recent-turn loading (`CHAT_CONTEXT_MESSAGES=24`) scoped to the active conversation, keeping follow-up questions context-aware without extra summarization overhead. |
-| **Full observability** | Every request is logged with latency and tokens saved. A single global **Date Range Filter** (bounded calendar range from first request to today) on Overview syncs across Overview, Analytics, Cache, Models, and Logs. |
+| **Full observability & Responsive UX** | Every request is logged with latency and tokens saved. Global **Date Range Filter** with full mobile drawer/sub-bar support, custom date range picking with isolated start/end bounds, zero-blank-screen route skeletons, and optimized RTK Query background polling. |
 | **Privacy-safe audit trail** | Security events store only keyed HMAC hashes and lengths. Raw user text is never written to the audit table. |
 
 ---
@@ -595,7 +596,7 @@ Base path: `/api/v1`. Interactive docs are at `http://127.0.0.1:9417/docs`.
 |---|---|---|
 | **Auth** | `POST /auth/register`, `/login`, `/refresh`, `/logout`, `/logout-all`, `/change-password`, `/otp/request`, `/otp/verify`, `/password-otp/request`, `/password-otp/reset`, `/forgot-password`, `/reset-password`; `GET /auth/google/login`, `/google/callback`, `/methods`, `/me` | Account, OAuth, Email OTP, password change/reset (OTP + token), and single/all-session management |
 | **Users** | `GET /users/me`, `PATCH /users/me` | Profile |
-| **Chat** | `POST /chat/completions`, `POST /chat/transcribe`, `POST /chat/tts` | Streaming SSE chat, Groq Whisper speech-to-text, and binary `audio/wav` TTS (Groq Orpheus `diana` primary + Gemini TTS `Kore` fallback) |
+| **Chat** | `POST /chat/completions`, `POST /chat/transcribe`, `POST /chat/voice-polish`, `POST /chat/tts` | Streaming SSE chat, Groq Whisper speech-to-text, Wispr Flow-style Hinglish voice polish, and binary `audio/mpeg` / `audio/wav` TTS (Edge Neural TTS `Emma` primary, Groq Orpheus `diana` + Gemini TTS `Kore` fallback) |
 | **Conversations** | `GET/POST /conversations`, `GET/PATCH/DELETE /conversations/{id}` | History, ownership enforced |
 | **Models** | `GET /providers`, `GET /models` | Configured providers and models |
 | **Cache** | `GET /cache/entries`, `DELETE /cache/entries`, `DELETE /cache/entries/{id}` | Browse, clear all user entries, or remove a single cache entry |
@@ -663,6 +664,9 @@ npm run typecheck
 | **Audit events store hashes only** | Privacy by design: the audit trail cannot leak user text. |
 | **Cache write-gating and policy version** | Unsafe or old-policy answers can never be served from the cache. |
 | **Models are configuration** | Hosted model IDs get retired. A dead ID should be a config change, not a code change. |
+| **Edge Neural TTS Primary with Groq & Gemini Fallback** | Read-aloud TTS uses Microsoft Edge Neural TTS (`en-US-EmmaMultilingualNeural` at `-4%` rate) as the primary engine. Reason: it has zero quota/API key constraints, handles unbounded text lengths without hallucinating, produces natural punctuation pauses, and transitions seamlessly across English, Hindi, and Hinglish. Groq Orpheus (`canopylabs/orpheus-v1-english`) serves as secondary fallback (locked to `diana` with a 45s cooldown on 429), and Gemini TTS (`gemini-2.5-flash-preview-tts` with voice `Kore`) acts as tertiary fallback. If all remote endpoints fail, the browser's native Web Speech API kicks in. |
+| **Unbounded 200-Character Sequential Speech Chunks** | Rather than dumping long LLM responses (e.g. 2,000–10,000 chars) into one monolithic TTS call that takes 25–40s or triggers audio garbling/hallucination, text is split into sequential 200-char sentence-aligned chunks. Chunk 1 starts playing within ~1.5s, while the frontend prefetches 1 chunk ahead. No text is skipped or truncated. |
+| **Strict Language Intent Cache Isolation** | Explicit directives such as *"Answer should be in Hindi language"* are parsed by `language_service.py` to set `effective_response_language='Hindi'`. Both Redis and pgvector keys are strictly scoped by language, preventing English or Hinglish cached answers from falsely serving as hits for a Hindi prompt. |
 
 ---
 

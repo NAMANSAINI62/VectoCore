@@ -56,7 +56,8 @@ SYSTEM_PROMPT = (
     "- Only provide long, in-depth explanations when the user explicitly requests detailed coverage "
     "(e.g., 'in detail', 'comprehensive', 'deep dive', 'step by step in detail').\n\n"
     "RESPONSE LANGUAGE POLICY:\n"
-    "- Write the final answer in {effective_response_language} without announcing or explaining the language policy."
+    "- Write the ENTIRE final answer strictly in {effective_response_language} without announcing or explaining the language policy.\n"
+    "- If {effective_response_language} is Hindi, write completely in pure Hindi (Devanagari script) — NEVER answer in English or Hinglish."
 )
 
 PROMPT = ChatPromptTemplate.from_messages(
