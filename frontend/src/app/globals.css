@@ -423,3 +423,69 @@ body {
     transition: none;
   }
 }
+
+/* Pure CSS Floating-Label Text Field */
+.floating-field {
+  position: relative;
+}
+
+.floating-field__label {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%) scale(1);
+  transform-origin: left center;
+  pointer-events: none;
+  padding: 0 0.25rem;
+  font-size: 0.875rem;
+  line-height: 1;
+  color: var(--muted-foreground);
+  background-color: transparent;
+  transition:
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.floating-field__input:focus ~ .floating-field__label,
+.floating-field__input:not(:placeholder-shown) ~ .floating-field__label {
+  transform: translateY(-1.9rem) scale(0.78);
+  color: var(--accent);
+  background-color: var(--card);
+}
+
+/* Password Strength Meter Bar */
+.strength-bar-fill {
+  transform-origin: left center;
+  transition:
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 0.25s ease;
+}
+
+/* PIN / OTP Box Spring Pop */
+@keyframes pin-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.pin-box-pop {
+  animation: pin-pop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floating-field__label,
+  .strength-bar-fill {
+    transition: none;
+  }
+
+  .pin-box-pop {
+    animation: none;
+  }
+}

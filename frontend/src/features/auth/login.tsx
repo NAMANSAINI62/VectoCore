@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { authService } from './service';
 import { useAuth } from './provider';
+import { FloatingLabelInput } from '@/components/ui/FloatingLabelInput';
+import { PasswordStrengthMeter } from '@/components/ui/PasswordStrengthMeter';
+import { PinCodeInput } from '@/components/ui/PinCodeInput';
 import { AlertCircle, CheckCircle2, Eye, EyeOff, KeyRound, Layers, LoaderCircle, Mail, MailCheck } from 'lucide-react';
 
 type AuthMode = 'otp' | 'password' | 'reset';
@@ -29,7 +32,6 @@ export function LoginForm() {
   const [googleRedirecting, setGoogleRedirecting] = useState(false);
 
   const submittingRef = useRef(false);
-  const otpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   const otpCode = otpDigits.join('');
 
@@ -47,12 +49,6 @@ export function LoginForm() {
     }, 1000);
     return () => window.clearInterval(id);
   }, [resendCooldown]);
-
-  useEffect(() => {
-    if (otpSent || resetOtpSent) {
-      otpInputRefs.current[0]?.focus();
-    }
-  }, [otpSent, resetOtpSent]);
 
   const handleGoogleSignIn = () => {
     if (loading || googleRedirecting) return;
@@ -124,66 +120,6 @@ export function LoginForm() {
     }
   };
 
-  const handleOtpChange = (index: number, rawValue: string) => {
-    const cleaned = rawValue.replace(/\D/g, '');
-    if (!cleaned) {
-      setOtpDigits((prev) => {
-        const next = [...prev];
-        next[index] = '';
-        return next;
-      });
-      return;
-    }
-
-    if (cleaned.length > 1) {
-      const next = ['', '', '', '', '', ''];
-      const chars = cleaned.slice(0, 6).split('');
-      chars.forEach((ch, idx) => {
-        next[idx] = ch;
-      });
-      setOtpDigits(next);
-      otpInputRefs.current[Math.min(chars.length, 5)]?.focus();
-      if (mode === 'otp' && chars.length === 6) {
-        void verifyOtpCode(next.join(''));
-      }
-      return;
-    }
-
-    const next = [...otpDigits];
-    next[index] = cleaned;
-    setOtpDigits(next);
-    if (index < 5) {
-      otpInputRefs.current[index + 1]?.focus();
-    } else if (mode === 'otp' && next.every((d) => d.length === 1)) {
-      void verifyOtpCode(next.join(''));
-    }
-  };
-
-  const handleOtpKeyDown = (index: number, event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Backspace' && !otpDigits[index] && index > 0) {
-      otpInputRefs.current[index - 1]?.focus();
-    } else if (event.key === 'ArrowLeft' && index > 0) {
-      otpInputRefs.current[index - 1]?.focus();
-    } else if (event.key === 'ArrowRight' && index < 5) {
-      otpInputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleOtpPaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
-    const pasted = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (!pasted) return;
-    event.preventDefault();
-    const next = ['', '', '', '', '', ''];
-    pasted.split('').forEach((ch, idx) => {
-      next[idx] = ch;
-    });
-    setOtpDigits(next);
-    otpInputRefs.current[Math.min(pasted.length, 5)]?.focus();
-    if (mode === 'otp' && pasted.length === 6) {
-      void verifyOtpCode(pasted);
-    }
-  };
-
   const handleVerifyOtp = async (event: React.FormEvent) => {
     event.preventDefault();
     await verifyOtpCode(otpCode);
@@ -236,28 +172,24 @@ export function LoginForm() {
   };
 
   const renderOtpBoxes = () => (
-    <div className="grid grid-cols-6 gap-1.5 sm:gap-2">
-      {otpDigits.map((digit, index) => (
-        <input
-          key={index}
-          id={`otp-digit-${index}`}
-          ref={(el) => {
-            otpInputRefs.current[index] = el;
-          }}
-          type="text"
-          inputMode="numeric"
-          autoComplete={index === 0 ? 'one-time-code' : 'off'}
-          maxLength={6}
-          value={digit}
-          disabled={loading}
-          onChange={(event) => handleOtpChange(index, event.target.value)}
-          onKeyDown={(event) => handleOtpKeyDown(index, event)}
-          onPaste={handleOtpPaste}
-          aria-label={`Verification code digit ${index + 1}`}
-          className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)]/70 text-center text-lg font-medium tabular-nums text-[var(--foreground)] transition-colors focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 disabled:opacity-60"
-        />
-      ))}
-    </div>
+    <PinCodeInput
+      length={6}
+      value={otpCode}
+      disabled={loading}
+      autoFocus={otpSent || resetOtpSent}
+      idPrefix="otp-digit"
+      ariaLabelPrefix="Verification code digit"
+      className="gap-1.5 sm:gap-2"
+      onChange={(nextCode) => {
+        const nextDigits = Array.from({ length: 6 }, (_, idx) => nextCode[idx] ?? '');
+        setOtpDigits(nextDigits);
+      }}
+      onComplete={(completedCode) => {
+        if (mode === 'otp') {
+          void verifyOtpCode(completedCode);
+        }
+      }}
+    />
   );
 
   return (
@@ -385,20 +317,15 @@ export function LoginForm() {
           {mode === 'otp' ? (
             !otpSent ? (
               <form onSubmit={handleRequestOtp} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label htmlFor="otp-email" className="block text-xs font-medium text-[var(--foreground)]">
-                    Email Address
-                  </label>
-                  <input
-                    id="otp-email"
-                    type="email"
-                    autoComplete="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    required
-                    className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)]/60 px-3.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-                  />
-                </div>
+                <FloatingLabelInput
+                  id="otp-email"
+                  type="email"
+                  label="Email Address"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                />
                 <button
                   type="submit"
                   disabled={loading}
@@ -472,20 +399,15 @@ export function LoginForm() {
           ) : mode === 'reset' ? (
             !resetOtpSent ? (
               <form onSubmit={handleRequestResetOtp} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label htmlFor="reset-email" className="block text-xs font-medium text-[var(--foreground)]">
-                    Email Address
-                  </label>
-                  <input
-                    id="reset-email"
-                    type="email"
-                    autoComplete="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    required
-                    className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)]/60 px-3.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-                  />
-                </div>
+                <FloatingLabelInput
+                  id="reset-email"
+                  type="email"
+                  label="Email Address"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                />
                 <button
                   type="submit"
                   disabled={loading}
@@ -546,30 +468,28 @@ export function LoginForm() {
                   {renderOtpBoxes()}
                 </div>
 
-                <div className="space-y-1.5">
-                  <label htmlFor="new-password" className="block text-xs font-medium text-[var(--foreground)]">
-                    New Password (min 8 characters)
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="new-password"
-                      type={showPassword ? 'text' : 'password'}
-                      autoComplete="new-password"
-                      minLength={8}
-                      value={newPassword}
-                      onChange={(event) => setNewPassword(event.target.value)}
-                      required
-                      className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)]/60 pl-3.5 pr-10 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((prev) => !prev)}
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
+                <div className="space-y-2">
+                  <FloatingLabelInput
+                    id="new-password"
+                    type={showPassword ? 'text' : 'password'}
+                    label="New Password (min 8 characters)"
+                    autoComplete="new-password"
+                    minLength={8}
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    required
+                    rightSlot={
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    }
+                  />
+                  <PasswordStrengthMeter value={newPassword} />
                 </div>
 
                 <button
@@ -607,26 +527,37 @@ export function LoginForm() {
             )
           ) : (
             <form onSubmit={handlePasswordSubmit} className="space-y-4">
-              <div className="space-y-1.5">
-                <label htmlFor="email" className="block text-xs font-medium text-[var(--foreground)]">
-                  Email Address
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  required
-                  className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)]/60 px-3.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-                />
-              </div>
+              <FloatingLabelInput
+                id="email"
+                type="email"
+                label="Email Address"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+              />
 
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label htmlFor="password" className="block text-xs font-medium text-[var(--foreground)]">
-                    Password
-                  </label>
+                <FloatingLabelInput
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  label="Password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                  rightSlot={
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  }
+                />
+                <div className="flex justify-end">
                   <button
                     type="button"
                     onClick={() => {
@@ -639,25 +570,6 @@ export function LoginForm() {
                     className="text-xs font-medium text-[var(--accent)] hover:underline"
                   >
                     Forgot password?
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    required
-                    className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)]/60 pl-3.5 pr-10 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((prev) => !prev)}
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>

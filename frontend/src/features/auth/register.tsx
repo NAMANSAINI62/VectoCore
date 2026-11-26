@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { authService } from './service';
+import { FloatingLabelInput } from '@/components/ui/FloatingLabelInput';
+import { PasswordStrengthMeter } from '@/components/ui/PasswordStrengthMeter';
 import { AlertCircle, CheckCircle2, Eye, EyeOff, Layers, LoaderCircle } from 'lucide-react';
 
 export function RegisterForm() {
@@ -123,60 +125,48 @@ export function RegisterForm() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label htmlFor="fullName" className="block text-xs font-medium text-[var(--foreground)]">
-                Full Name
-              </label>
-              <input
-                id="fullName"
-                type="text"
-                autoComplete="name"
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-                required
-                className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)]/60 px-3.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-              />
-            </div>
+            <FloatingLabelInput
+              id="fullName"
+              type="text"
+              label="Full Name"
+              autoComplete="name"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+              required
+            />
 
-            <div className="space-y-1.5">
-              <label htmlFor="email" className="block text-xs font-medium text-[var(--foreground)]">
-                Email Address
-              </label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                required
-                className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)]/60 px-3.5 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-              />
-            </div>
+            <FloatingLabelInput
+              id="email"
+              type="email"
+              label="Email Address"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
 
-            <div className="space-y-1.5">
-              <label htmlFor="password" className="block text-xs font-medium text-[var(--foreground)]">
-                Password (min 8 characters)
-              </label>
-              <div className="relative">
-                <input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  minLength={8}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                  className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)]/60 pl-3.5 pr-10 text-sm text-[var(--foreground)] transition-colors focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
+            <div className="space-y-2">
+              <FloatingLabelInput
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                label="Password (min 8 characters)"
+                autoComplete="new-password"
+                minLength={8}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                rightSlot={
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                }
+              />
+              <PasswordStrengthMeter value={password} />
             </div>
 
             <button
