@@ -201,10 +201,13 @@ def test_blocked_output_in_graph_never_reaches_cache_and_saves_status_blocked(
             assert len(assistant_msgs) == 1
             assert assistant_msgs[0].status == "blocked"
 
-            # get_conversation must exclude status='blocked'
+            # get_conversation keeps the safe blocked reply paired with the user turn (never leaking canary)
             db_user = await verify_session.get(User, user_id)
             conv_resp = await chatbot_endpoint.get_conversation(conv_id, user=db_user, db=verify_session)
-            assert all(m.role != "assistant" for m in conv_resp.messages)
+            conv_assistant_msgs = [m for m in conv_resp.messages if m.role == "assistant"]
+            assert len(conv_assistant_msgs) == 1
+            assert canary not in conv_assistant_msgs[0].content
+            assert "I cannot fulfill this request due to safety guidelines" in conv_assistant_msgs[0].content
 
             # Zero cache entries written
             cache_rows = list((await verify_session.scalars(select(CacheEntry))).all())

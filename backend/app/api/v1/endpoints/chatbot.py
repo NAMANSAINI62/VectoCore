@@ -213,7 +213,7 @@ async def get_conversation(
         .where(
             ChatMessage.conversation_id == conversation.id,
             ChatMessage.owner_id == user.id,
-            ChatMessage.status == "completed",
+            ChatMessage.status.in_(("completed", "blocked")),
         )
         .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
     )

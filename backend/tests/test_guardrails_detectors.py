@@ -355,6 +355,27 @@ def test_secret_scanner_detects_planted_fake_key_env_fingerprint_and_canary() ->
         res_benign = await scanner.check("What are the main advantages of pgvector HNSW indexing?")
         assert res_benign.decision == Decision.ALLOW
 
+        # 5. Auth/OTP/JWT coding tutorial on output must NOT false-positive block on high_entropy_secret
+        tutorial_output = (
+            "```python\n"
+            'JWT_SECRET = "a9f8c7e6b5d4039281706f5e4d3c2b1a9f8c7e6b5d403928"\n'
+            'OTP_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"\n'
+            'headers = {"Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"}\n'
+            "```\n"
+        )
+        res_tutorial = await scanner.check(tutorial_output, layer="output")
+        assert res_tutorial.decision == Decision.ALLOW
+        assert res_tutorial.categories == []
+
+        # 6. Real env secret & PEM private key on output are STILL deterministically BLOCKED
+        res_env_out = await scanner.check(f"Leaked: {planted_secret_val}", layer="output")
+        assert res_env_out.decision == Decision.BLOCK
+        assert "env_secret_leak" in res_env_out.categories
+
+        res_pem_out = await scanner.check("-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA", layer="output")
+        assert res_pem_out.decision == Decision.BLOCK
+        assert "private_key_block" in res_pem_out.categories
+
     asyncio.run(_run())
 
 

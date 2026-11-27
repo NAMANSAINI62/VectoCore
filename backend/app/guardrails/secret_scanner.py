@@ -58,6 +58,10 @@ _STRUCTURED_KEY_PREFIX_RE = re.compile(
     r")\b"
 )
 
+_PRIVATE_KEY_HEADER_RE = re.compile(
+    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"
+)
+
 _TOKEN_SPLIT_RE = re.compile(r"[\s\"'`,;()\[\]{}<>=]+")
 
 
@@ -133,7 +137,7 @@ class SecretScannerDetector:
             for name, val in extra_named_secrets.items():
                 self.register_secret_value(name, val)
 
-    def _scan_text_sync(self, text: str) -> list[str]:
+    def _scan_text_sync(self, text: str, layer: str = "input") -> list[str]:
         if not text or not text.strip():
             return []
 
@@ -164,32 +168,38 @@ class SecretScannerDetector:
                         categories.add("env_secret_leak")
                         break
 
-        # 2. Structured provider API key prefixes (nvapi-, gsk_, sk-, AIza, ghp_, AKIA, etc.)
+        # 2. Structured provider API key prefixes (nvapi-, gsk_, sk-, AIza, ghp_, AKIA, etc.) and PEM private keys
         if _STRUCTURED_KEY_PREFIX_RE.search(text):
             categories.add("api_key_format")
+        if _PRIVATE_KEY_HEADER_RE.search(text):
+            categories.add("private_key_block")
 
-        # 3. detect-secrets plugin scan line-by-line
-        with _DETECT_SECRETS_LOCK:
-            with default_settings():
-                for line in text.splitlines():
-                    if not line.strip():
-                        continue
-                    for secret in scan_line(line):
-                        # High-entropy plugins alone can trigger on non-secret text unless paired or assignment-like;
-                        # keep all format-specific detectors and high-entropy matches on assignment/key contexts
-                        sec_type = secret.type
-                        if sec_type in ("Base64 High Entropy String", "Hex High Entropy String"):
-                            val = getattr(secret, "secret_value", "") or ""
-                            if val.startswith(("http://", "https://")):
-                                continue
-                            if re.search(
-                                r"(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|password|passwd|secret|bearer|authorization)\s*(?:[:=]\s*|\s+Bearer\s+)\S+",
-                                line,
-                                re.IGNORECASE,
-                            ):
-                                categories.add("high_entropy_secret")
-                        else:
-                            categories.add(f"detect_secrets:{sec_type.lower().replace(' ', '_')}")
+        # 3. Heuristic detect-secrets plugin scan (input layer only).
+        # Skipping generic entropy/keyword heuristics on LLM output prevents false-positive blocks on
+        # coding/authentication tutorials (example JWT secrets, bcrypt/SHA-256 hashes, SMTP placeholders)
+        # while still deterministically blocking real env secrets, canaries, provider API keys, and PEM keys.
+        if layer != "output":
+            with _DETECT_SECRETS_LOCK:
+                with default_settings():
+                    for line in text.splitlines():
+                        if not line.strip():
+                            continue
+                        for secret in scan_line(line):
+                            # High-entropy plugins alone can trigger on non-secret text unless paired or assignment-like;
+                            # keep all format-specific detectors and high-entropy matches on assignment/key contexts
+                            sec_type = secret.type
+                            if sec_type in ("Base64 High Entropy String", "Hex High Entropy String"):
+                                val = getattr(secret, "secret_value", "") or ""
+                                if val.startswith(("http://", "https://")):
+                                    continue
+                                if re.search(
+                                    r"(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|password|passwd|secret|bearer|authorization)\s*(?:[:=]\s*|\s+Bearer\s+)\S+",
+                                    line,
+                                    re.IGNORECASE,
+                                ):
+                                    categories.add("high_entropy_secret")
+                            else:
+                                categories.add(f"detect_secrets:{sec_type.lower().replace(' ', '_')}")
 
         return sorted(categories)
 
@@ -248,16 +258,17 @@ class SecretScannerDetector:
                 redacted = "".join(out_lines)
         return redacted
 
-    async def _invoke_under_breaker(self, text: str, timeout_sec: float) -> list[str]:
+    async def _invoke_under_breaker(self, text: str, timeout_sec: float, layer: str = "input") -> list[str]:
         if hasattr(self._breaker, "call_async") and hasattr(self._breaker, "timeout_sec"):
             return await self._breaker.call_async(
                 asyncio.to_thread,
                 self._scan_text_sync,
                 text,
+                layer,
                 timeout_sec=timeout_sec,
             )
         return await asyncio.wait_for(
-            asyncio.to_thread(self._breaker.call, self._scan_text_sync, text),
+            asyncio.to_thread(self._breaker.call, self._scan_text_sync, text, layer),
             timeout=timeout_sec,
         )
 
@@ -294,7 +305,7 @@ class SecretScannerDetector:
 
         try:
             categories = await self._invoke_under_breaker(
-                text, self.settings.GUARDRAILS_SECRET_SCAN_TIMEOUT_SEC
+                text, self.settings.GUARDRAILS_SECRET_SCAN_TIMEOUT_SEC, layer=layer
             )
             dt_ms = round((time.perf_counter() - t0) * 1000.0, 2)
             if categories:
@@ -347,9 +358,16 @@ class SecretScannerDetector:
                 error_code=err_code,
             )
 
+    @staticmethod
+    def _warmup_plugins_sync() -> None:
+        with _DETECT_SECRETS_LOCK:
+            with default_settings():
+                list(scan_line("warmup"))
+
     async def self_test(self) -> bool:
-        """Startup self-test: 1 fake credential probe must block/fallback and 1 benign probe must allow."""
+        """Startup self-test: warm up plugins, then 1 credential probe must block/fallback and 1 benign probe must allow."""
         try:
+            await asyncio.to_thread(self._warmup_plugins_sync)
             harmful_probe = "aws_access_key_id = AKIAIOSFODNN7EXAMPLE"
             benign_probe = "Explain how Redis L1 exact hashing and PostgreSQL pgvector work."
 
