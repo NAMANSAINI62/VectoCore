@@ -12,6 +12,8 @@ export interface CacheDistributionChartProps {
   exactHits: number;
   semanticHits: number;
   misses: number;
+  blocked?: number;
+  fetchCount?: number;
   totalRequests: number;
   hitRatePct?: number;
   isLoading?: boolean;
@@ -22,6 +24,8 @@ export function CacheDistributionChart({
   exactHits,
   semanticHits,
   misses,
+  blocked = 0,
+  fetchCount = 0,
   totalRequests,
   hitRatePct,
   isLoading = false,
@@ -33,8 +37,10 @@ export function CacheDistributionChart({
         { name: 'Exact Hit', value: exactHits, color: CHART_COLORS.exactHit },
         { name: 'Semantic Hit', value: semanticHits, color: CHART_COLORS.semanticHit },
         { name: 'Cache Miss (LLM)', value: misses, color: CHART_COLORS.miss },
+        { name: 'Fetch (MCP)', value: fetchCount, color: '#0284c7' },
+        { name: 'Blocked (Guardrails)', value: blocked, color: '#d97706' },
       ].filter((item) => item.value > 0),
-    [exactHits, semanticHits, misses]
+    [exactHits, semanticHits, misses, fetchCount, blocked]
   );
 
   const computedHitRate = useMemo(() => {
@@ -68,6 +74,8 @@ export function CacheDistributionChart({
             { label: 'Exact Hit', color: CHART_COLORS.exactHit, value: exactHits },
             { label: 'Semantic Hit', color: CHART_COLORS.semanticHit, value: semanticHits },
             { label: 'Cache Miss', color: CHART_COLORS.miss, value: misses },
+            ...(fetchCount > 0 ? [{ label: 'Fetch', color: '#0284c7', value: fetchCount }] : []),
+            ...(blocked > 0 ? [{ label: 'Blocked', color: '#d97706', value: blocked }] : []),
           ]}
         />
       }

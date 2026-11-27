@@ -3,6 +3,7 @@
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
+import re
 import threading
 import time
 
@@ -28,15 +29,11 @@ class ModelOption:
     tier: str | None = None
 
 
-import re
-
 MAX_SAFE_RPM = 10
 
 # Exclusive, zero-duplication UI category mapping for Gemini models (from AI Studio free-tier dashboard)
 _MODEL_UI_TIERS: dict[str, str] = {
-    "gemma-4-31b-it": "deep_research",
-    "gemini-3.8-flash": "complex",
-    "gemini-3-flash-preview": "complex",
+    "gemini-3-flash-preview": "deep_research",
     "gemini-3.5-flash-lite": "balanced",
     "gemini-3.1-flash-lite": "fast",
     "gemini-3.1-flash-lite-preview": "fast",
@@ -47,21 +44,11 @@ _MODEL_LABELS: dict[str, str] = {
     "openai/gpt-oss-20b": "GPT-OSS 20B",
     "openai/gpt-oss-120b": "GPT-OSS 120B",
     "baidu/ernie-5.5-flash-preview:free": "ERNIE 5.5 Flash",
-    "gemma-4-31b-it": "Gemma 4 31B",
-    "gemini-3.8-flash": "3.8 Flash",
     "gemini-3-flash-preview": "3 Flash",
     "gemini-3.5-flash-lite": "3.5 Flash-Lite",
     "gemini-flash-lite-latest": "Flash-Lite",
     "gemini-3.1-flash-lite": "3.1 Flash-Lite",
     "gemini-3.1-flash-lite-preview": "3.1 Lite Prev",
-    "gemini-3.8-flash-tts": "3.8 Flash TTS",
-    "gemini-3.1-flash-tts-preview": "3.1 TTS Prev",
-    "gemini-3.8-flash-lite-tts": "3.8 Lite TTS",
-    "gemini-2.5-flash-preview-tts": "2.5 Flash TTS",
-    "gemini-3.5-transcribe": "3.5 Transcribe",
-    "gemini-3.8-live-extended-thinking": "3.8 Live Think",
-    "gemini-3.8-live": "3.8 Live",
-    "gemini-3.1-flash-live-preview": "3.1 Live Prev",
     "command-a-03-2025": "Command A",
     "nvidia/nemotron-3.5-super-vl-120b-a12b": "Nemotron 120B",
     "nvidia/nemotron-3.5-bolt-e4b": "Nemotron Bolt",
@@ -70,6 +57,37 @@ _MODEL_LABELS: dict[str, str] = {
 
 def get_model_label(model_id: str) -> str:
     return _MODEL_LABELS.get(model_id, model_id)
+
+
+def get_model_tier(provider: str, model_id: str) -> str | None:
+    """Return the UI/response tier ('deep_research'|'balanced'|'fast') for a concrete model."""
+    _ = provider
+    clean_id = (model_id or "").strip()
+    if not clean_id:
+        return None
+    if clean_id in _MODEL_UI_TIERS:
+        return _MODEL_UI_TIERS[clean_id]
+    low = clean_id.lower()
+    if "120b" in low or "340b" in low or "ultra" in low or "super-vl" in low:
+        return "deep_research"
+    if "20b" in low:
+        return "balanced"
+    if "flash" in low or "bolt" in low:
+        return "fast"
+    return "balanced"
+
+
+def resolve_effective_tier(
+    provider: str,
+    model_id: str,
+    *,
+    message: str,
+    history_len: int = 0,
+) -> tuple[str, str]:
+    """Resolve the response depth tier: explicit selected model tier first, else query-intent tier."""
+    intent_tier, intent_label = classify_query_intent_and_complexity(message, history_len=history_len)
+    explicit_tier = get_model_tier(provider, model_id)
+    return (explicit_tier or intent_tier), intent_label
 
 
 # Free-tier safety budgets per model (soft pre-switch threshold triggers before hitting 429)
@@ -93,40 +111,43 @@ class ModelQuotaPolicy:
 
 
 _MODEL_QUOTA_POLICIES: dict[str, ModelQuotaPolicy] = {
-    "gemma-4-31b-it": ModelQuotaPolicy(rpm_limit=30, rpd_limit=14400),
-    "gemini-3.8-flash": ModelQuotaPolicy(rpm_limit=5, rpd_limit=20),
     "gemini-3-flash-preview": ModelQuotaPolicy(rpm_limit=5, rpd_limit=20),
     "gemini-3.5-flash-lite": ModelQuotaPolicy(rpm_limit=15, rpd_limit=500),
     "gemini-flash-lite-latest": ModelQuotaPolicy(rpm_limit=10, rpd_limit=20),
     "gemini-3.1-flash-lite": ModelQuotaPolicy(rpm_limit=15, rpd_limit=500),
     "gemini-3.1-flash-lite-preview": ModelQuotaPolicy(rpm_limit=15, rpd_limit=500),
-    "gemini-3.8-flash-tts": ModelQuotaPolicy(rpm_limit=3, rpd_limit=10),
-    "gemini-3.1-flash-tts-preview": ModelQuotaPolicy(rpm_limit=3, rpd_limit=10),
-    "gemini-3.8-flash-lite-tts": ModelQuotaPolicy(rpm_limit=3, rpd_limit=10),
-    "gemini-2.5-flash-preview-tts": ModelQuotaPolicy(rpm_limit=3, rpd_limit=10),
-    "gemini-3.5-transcribe": ModelQuotaPolicy(rpm_limit=3, rpd_limit=25),
-    "gemini-3.8-live-extended-thinking": ModelQuotaPolicy(rpm_limit=10, rpd_limit=500),
-    "gemini-3.8-live": ModelQuotaPolicy(rpm_limit=10, rpd_limit=500),
-    "gemini-3.1-flash-live-preview": ModelQuotaPolicy(rpm_limit=10, rpd_limit=500),
     "command-a-03-2025": ModelQuotaPolicy(rpm_limit=5, rpd_limit=1000),
     "baidu/ernie-5.5-flash-preview:free": ModelQuotaPolicy(rpm_limit=20, rpd_limit=50),
 }
 
 _DEEP_RESEARCH_INTENT_RE = re.compile(
-    r"\b("
-    r"deep research|research report|literature review|thorough investigation|"
-    r"exhaustive analysis|multi[- ]source analysis|comprehensive research|state of the art"
-    r")\b",
+    r"(?:"
+    r"\b(?:"
+    r"deep\s+research|deep\s+dive|in[- ]depth|"
+    r"detailed\s+(?:answer|explanation|analysis|breakdown|guide|overview|comparison|walkthrough|report)|"
+    r"in\s+detail|explain\s+(?:\w+\s+){0,3}(?:in\s+detail|thoroughly|comprehensively|exhaustively|deeply)|"
+    r"research\s+report|literature\s+review|thorough\s+(?:investigation|analysis|breakdown|explanation)|"
+    r"exhaustive(?:\s+analysis|\s+breakdown|\s+guide)?|comprehensive(?:\s+research|\s+analysis|\s+guide|\s+breakdown|\s+explanation)?|"
+    r"multi[- ]source\s+analysis|state\s+of\s+the\s+art|full\s+breakdown|complete\s+(?:guide|breakdown|analysis)|"
+    r"under\s+the\s+hood|internal\s+(?:working|workings|architecture|mechanics)|internals\s+of|from\s+first\s+principles|"
+    r"detail(?:s)?\s+(?:mein|me|mai)|deep\s+(?:mein|me|mai)|depth\s+(?:mein|me|mai)|"
+    r"vistaa?r\s+se|gehrai\s+se|poori\s+(?:detail|jaankari|jankari|tarah)|puri\s+(?:detail|jaankari|jankari|tarah)|"
+    r"achh?e\s+se\s+(?:samjha|bata)|andar\s+se\s+kaise|shuru\s+se\s+(?:ant|aakhir|end)\s+tak"
+    r")\b"
+    r"|(?:"
+    r"विस्तार\s*से|विस्तृत|विस्तारपूर्वक|गहराई\s*से|डिटेल\s*में|डीप\s*रिसर्च|"
+    r"संपूर्ण\s*(?:विवरण|विश्लेषण|जानकारी)|पूरी\s*(?:जानकारी|डिटेल)|आर्किटेक्चर|चरण[- ]दर[- ]चरण"
+    r"))",
     re.IGNORECASE,
 )
 
 _COMPLEX_INTENT_RE = re.compile(
     r"\b("
-    r"architecture|system design|tradeoff|trade-off|root cause|"
-    r"step[- ]by[- ]step|comprehensive|prove|mathematical|algorithm|optimi[sz]e|"
-    r"refactor|debug|security audit|distributed|concurrency|benchmark|"
-    r"end[- ]to[- ]end|production grade|analyze in detail|compare in detail|"
-    r"explain in depth|design a|build a full|migrate"
+    r"architecture|system\s+design|trade[- ]?offs?|root\s+cause|"
+    r"step[- ]by[- ]step|prove|mathematical|algorithm|optimi[sz]e|"
+    r"refactor|debug|security\s+audit|distributed|concurrency|benchmark|"
+    r"end[- ]to[- ]end|production[- ]grade|analyze\s+in\s+detail|compare\s+in\s+detail|"
+    r"design\s+a|build\s+a\s+full|migrate"
     r")\b",
     re.IGNORECASE,
 )
@@ -143,18 +164,7 @@ _BALANCED_INTENT_RE = re.compile(
 # Runtime performance & quota failover ranking per intent tier (with automatic 503/429 failover)
 _GEMINI_TIER_RANKINGS: dict[str, tuple[str, ...]] = {
     "deep_research": (
-        "gemma-4-31b-it",
-        "gemini-3.8-flash",
         "gemini-3-flash-preview",
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-3.1-flash-lite-preview",
-        "gemini-flash-lite-latest",
-    ),
-    "complex": (
-        "gemini-3.8-flash",
-        "gemini-3-flash-preview",
-        "gemma-4-31b-it",
         "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
         "gemini-3.1-flash-lite-preview",
@@ -166,8 +176,6 @@ _GEMINI_TIER_RANKINGS: dict[str, tuple[str, ...]] = {
         "gemini-3.1-flash-lite-preview",
         "gemini-flash-lite-latest",
         "gemini-3-flash-preview",
-        "gemma-4-31b-it",
-        "gemini-3.8-flash",
     ),
     "fast": (
         "gemini-3.1-flash-lite",
@@ -175,14 +183,12 @@ _GEMINI_TIER_RANKINGS: dict[str, tuple[str, ...]] = {
         "gemini-flash-lite-latest",
         "gemini-3.5-flash-lite",
         "gemini-3-flash-preview",
-        "gemma-4-31b-it",
-        "gemini-3.8-flash",
     ),
 }
 
 
 def classify_query_intent_and_complexity(message: str, history_len: int = 0) -> tuple[str, str]:
-    """Classify prompt into ('deep_research'|'complex'|'balanced'|'fast', intent_label) for dynamic routing."""
+    """Classify prompt into ('deep_research'|'balanced'|'fast', intent_label) for dynamic routing."""
     clean = (message or "").strip()
     words = len(clean.split())
     lines = clean.count("\n") + (1 if clean else 0)
@@ -190,7 +196,7 @@ def classify_query_intent_and_complexity(message: str, history_len: int = 0) -> 
     if _DEEP_RESEARCH_INTENT_RE.search(clean):
         return "deep_research", "deep research & multi-step synthesis"
     if _COMPLEX_INTENT_RE.search(clean) or len(clean) >= 220 or words >= 38 or lines >= 5 or (history_len >= 8 and words >= 18):
-        return "complex", "complex reasoning & deep analysis"
+        return "deep_research", "deep research & complex analysis"
     if _BALANCED_INTENT_RE.search(clean) or len(clean) >= 75 or words >= 14:
         return "balanced", "balanced code & structured explanation"
     return "fast", "fast lookup & concise response"
@@ -291,10 +297,10 @@ def _ordered_tier_backups(all_opts: list[ModelOption], tier: str) -> list[ModelO
 
     cross_backups = (
         ("nvidia", "nvidia/nemotron-3.5-super-vl-120b-a12b")
-        if tier in ("deep_research", "complex")
+        if tier == "deep_research"
         else ("nvidia", "nvidia/nemotron-3.5-bolt-e4b"),
         ("nvidia", "nvidia/nemotron-3.5-bolt-e4b"),
-        ("groq", "openai/gpt-oss-120b") if tier in ("deep_research", "complex") else ("groq", "openai/gpt-oss-20b"),
+        ("groq", "openai/gpt-oss-120b") if tier == "deep_research" else ("groq", "openai/gpt-oss-20b"),
         ("groq", "openai/gpt-oss-20b"),
     )
     for backup_pair in cross_backups:
@@ -390,7 +396,7 @@ def available_models() -> list[ModelOption]:
             model_id,
             _MODEL_LABELS.get(model_id, model_id),
             provider,
-            tier=_MODEL_UI_TIERS.get(model_id) if provider == "gemini" else None,
+            tier=get_model_tier(provider, model_id),
         )
         for provider, raw in provider_lists
         for model_id in _split_models(raw)
@@ -413,8 +419,12 @@ def provider_options() -> list[dict[str, object]]:
     return providers
 
 
+def is_valid_model_pair(provider: str, model: str) -> bool:
+    return any(item.provider == provider and item.id == model for item in available_models())
+
+
 def validate_provider_model(provider: str, model: str) -> None:
-    if not any(item.provider == provider and item.id == model for item in available_models()):
+    if not is_valid_model_pair(provider, model):
         raise HTTPException(status_code=422, detail="The selected model is not available for this provider.")
     if not _is_provider_configured(provider):
         raise HTTPException(status_code=503, detail=f"The {provider} provider is not configured on the backend.")

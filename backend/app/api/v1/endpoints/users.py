@@ -11,19 +11,6 @@ from app.services.user_service import UserService
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
-@router.get(
-    "/me",
-    response_model=UserResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Get authenticated user profile",
-)
-async def get_my_profile(
-    current_user: User = Depends(get_current_user),
-) -> UserResponse:
-    """Return profile data of currently logged in user."""
-    return UserResponse.model_validate(current_user)
-
-
 @router.patch(
     "/me",
     response_model=UserResponse,

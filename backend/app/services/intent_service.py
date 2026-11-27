@@ -71,9 +71,12 @@ Evaluate ALL of the following dimensions:
      * "How to sort a list in Python?" vs "How to reverse a list in Python?"
 2. Multilingual Equivalence:
    - Queries in different languages or scripts (e.g., English, Hindi, Hinglish such as "Python ke kya fayde hain?" or "Python की क्या खूबियाँ हैं?") ARE compatible with "What are the advantages of Python?" if they ask for the exact same underlying information and have no conflicting instructions.
-3. Explicit Instructions & Constraints:
-   - Check format, length, tone, audience, or constraint instructions (e.g., "in 3 bullet points" vs "detailed essay", "for a beginner" vs "for senior engineers", "with code example" vs "no code").
-   - If explicit instructions or constraints conflict, set is_compatible = false.
+3. Explicit Instructions, Depth & Constraints:
+   - Check format, depth, length, tone, audience, or constraint instructions across ALL languages (English, Hindi, Hinglish, etc.) — e.g.:
+     * Simple/general query ("What is Docker?", "Docker kya hai?") vs deep/detailed/architectural query ("Explain Docker in detail", "Docker ko vistaar se samjhao", "डॉकर के आर्किटेक्चर को विस्तार से समझाओ", "Deep dive into Docker internals") -> MUST REJECT (is_compatible = false).
+     * "in 3 bullet points" vs "detailed essay", "for a beginner" vs "for senior engineers", "with code example" vs "no code" -> MUST REJECT.
+   - If explicit instructions, requested depth, or constraints conflict, set is_compatible = false.
+   - Conversely, if BOTH queries request equivalent depth/detail (e.g., "Explain Docker in detail" and "Docker ko vistaar se samjhao"), they CAN be compatible when the core topic matches.
 4. Safety Rule:
    - Never accept a candidate merely because it shares topic keywords (e.g., both mention "Python").
    - When uncertain or ambiguous, set is_compatible = false."""

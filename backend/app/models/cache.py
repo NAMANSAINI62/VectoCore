@@ -6,7 +6,6 @@ from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
-    Boolean,
     CheckConstraint,
     DateTime,
     Float,
@@ -83,7 +82,7 @@ class CacheTelemetry(Base):
         Index("ix_cache_telemetry_owner_created", "owner_id", "created_at"),
         Index("ix_cache_telemetry_status", "cache_status"),
         CheckConstraint(
-            "cache_status IN ('exact_hit', 'semantic_hit', 'miss', 'bypass', 'error', 'blocked')",
+            "cache_status IN ('exact_hit', 'semantic_hit', 'miss', 'fetch', 'error', 'blocked')",
             name="ck_cache_telemetry_cache_status",
         ),
     )
@@ -99,22 +98,16 @@ class CacheTelemetry(Base):
     query_preview: Mapped[str] = mapped_column(String(255), nullable=False)
     detected_language: Mapped[str] = mapped_column(String(80), nullable=False, default="English")
     requested_language: Mapped[str] = mapped_column(String(80), nullable=False, default="English")
-    cache_status: Mapped[str] = mapped_column(String(20), nullable=False)  # 'exact_hit', 'semantic_hit', 'miss', 'bypass', 'error', 'blocked'
+    cache_status: Mapped[str] = mapped_column(String(20), nullable=False)  # 'exact_hit', 'semantic_hit', 'miss', 'fetch', 'error', 'blocked'
     similarity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     matched_entry_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     matched_query: Mapped[str | None] = mapped_column(Text, nullable=True)
     response_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
-    related_candidates: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     current_query: Mapped[str | None] = mapped_column(Text, nullable=True)
     matched_queries_snapshot: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     rejected_candidates_snapshot: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     returned_response_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     validation_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    variant_reused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    translation_performed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    translation_failed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    translation_latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     provider: Mapped[str] = mapped_column(String(40), nullable=False)
     model: Mapped[str] = mapped_column(String(160), nullable=False)
@@ -130,14 +123,6 @@ class CacheTelemetry(Base):
     cache_lookup_latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     llm_latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     latency_saved_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    embedding_latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    pgvector_search_latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    compatibility_latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-
-    # Short-Term Memory Observability
-    memory_context_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    memory_summary_included: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    memory_window_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

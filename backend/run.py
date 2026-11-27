@@ -1,4 +1,4 @@
-"""Runner for Semantic Cache Engine backend."""
+"""Runner for VectoCore Semantic Cache Engine backend."""
 
 import os
 import sys
@@ -9,9 +9,6 @@ backend_dir = Path(__file__).resolve().parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-# Enforce cache directory on D: drive where disk space is abundant
-os.environ["FASTEMBED_CACHE_PATH"] = "D:\\fastembed_cache"
-os.environ["HF_HOME"] = "D:\\huggingface_cache"
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
@@ -23,14 +20,13 @@ if __name__ == "__main__":
     settings = get_settings()
     port = settings.PORT
     print("=" * 60)
-    print("Pre-warming multilingual local embedding engine (MiniLM / BGE)...")
+    print(f"Verifying embedding engine ({settings.EMBEDDING_MODEL_NAME})...")
     try:
         service = get_embedding_service()
-        # Warmup embedding with 1 test query
-        _ = service.embed_query("Semantic cache engine warmup")
-        print("Embedding engine loaded successfully in memory!")
+        _ = service.embed_query("VectoCore embedding engine warmup")
+        print("Embedding engine ready!")
     except Exception as exc:
-        print(f"Warning: Local embedding pre-warm encountered: {exc}")
+        print(f"Warning: Embedding warmup encountered: {exc}")
     print(f"Starting FastAPI backend on http://127.0.0.1:{port}...")
     print("=" * 60)
     uvicorn.run(

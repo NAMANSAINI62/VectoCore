@@ -1,6 +1,7 @@
 """Public GuardrailsService facade orchestrating detectors, lifecycle, and decision engine."""
 
 import asyncio
+import logging
 import re
 import secrets
 import time
@@ -21,7 +22,8 @@ from app.guardrails.privacy import PrivacyDetector
 from app.guardrails.schemas import Decision, GuardrailVerdict, LayerMode, LayerResult, ScoreBand
 from app.guardrails.secret_scanner import SecretScannerDetector
 
-DEFAULT_INPUT_MAX_CHARS = 12000
+logger = logging.getLogger(__name__)
+DEFAULT_INPUT_MAX_CHARS = 25000
 DEFAULT_OUTPUT_MAX_CHARS = 32000
 
 
@@ -143,7 +145,6 @@ class GuardrailsService:
         await self.lifecycle.startup()
         if run_self_tests:
             await self.run_self_tests()
-            import logging
             log = logging.getLogger("app.guardrails.startup")
             unavailable: list[str] = []
             for name, info in self.lifecycle.detector_status.items():
@@ -166,14 +167,6 @@ class GuardrailsService:
                 log.error(
                     "GUARDRAILS ERROR: Both input detectors (self_check_input, content_safety_input) are UNAVAILABLE while GUARDRAILS_INPUT_MODE=enforce!"
                 )
-            in_both_down = (
-                self.lifecycle.detector_status.get("self_check_input", {}).get("state") != "READY"
-                and self.lifecycle.detector_status.get("content_safety_input", {}).get("state") != "READY"
-            )
-            if in_both_down and self.settings.GUARDRAILS_INPUT_MODE == "enforce":
-                log.error(
-                    "GUARDRAILS ERROR: Both input detectors (self_check_input, content_safety_input) are UNAVAILABLE while GUARDRAILS_INPUT_MODE=enforce!"
-                )
 
     async def shutdown(self) -> None:
         """Clean up guardrails resources during FastAPI lifespan shutdown."""
@@ -182,22 +175,6 @@ class GuardrailsService:
     def health_snapshot(self) -> dict[str, Any]:
         """Return non-sensitive health and circuit-breaker status."""
         return self.lifecycle.health_snapshot()
-
-    async def run_tier1_parallel(
-        self,
-        text: str,
-        *,
-        mode: LayerMode | None = None,
-    ) -> list[LayerResult]:
-        """Execute Tier-1 detectors (self-check + content safety + Presidio) concurrently via asyncio.gather."""
-        in_mode = mode or LayerMode(self.settings.get_layer_mode("input"))
-        pii_mode = mode or LayerMode(self.settings.get_layer_mode("pii"))
-        res_ij, res_cs, res_pii = await asyncio.gather(
-            self.injection_detector.check(text, layer="input", mode=in_mode),
-            self.content_safety_detector.check_input(text, mode=in_mode),
-            self.privacy_detector.check(text, layer="pii", mode=pii_mode),
-        )
-        return [res_ij, res_cs, res_pii]
 
     async def _emit_security_events(
         self,
@@ -233,8 +210,7 @@ class GuardrailsService:
                 try:
                     await write_security_event(db, event)
                 except Exception as exc:
-                    import logging
-                    logging.getLogger(__name__).warning(
+                    logger.warning(
                         "Best-effort guardrail_events DB write failed (type=%s, error=%s); continuing.",
                         type(exc).__name__,
                         str(exc),

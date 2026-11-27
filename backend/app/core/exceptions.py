@@ -41,11 +41,3 @@ class UserAlreadyExistsError(HTTPException):
             status_code=status.HTTP_409_CONFLICT,
             detail="A user with this email address already exists",
         )
-
-
-class InvalidResetTokenError(HTTPException):
-    def __init__(self):
-        super().__init__(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid, expired, or already used password reset token",
-        )

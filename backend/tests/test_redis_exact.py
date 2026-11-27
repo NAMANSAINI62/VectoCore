@@ -8,8 +8,6 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.api.v1.endpoints.cache import _compute_percentiles
-from app.models.cache import CacheTelemetry
 from app.services.cache_engine import compute_exact_cache_key, normalize_query_for_cache
 from app.services.token_service import count_tokens
 
@@ -37,11 +35,6 @@ def test_exact_cache_key_determinism():
     )
     assert normalized_a == normalized_b
     assert key_a == key_b
-
-
-def test_p50_p95_p99_percentiles():
-    p50, p95, p99 = _compute_percentiles([1, 2, 3, 4, 5, 10, 20, 50, 100, 200])
-    assert p50 > 0 and p95 >= p50 and p99 >= p95
 
 
 def test_phase2_libraries_lingua_tiktoken_registry_judge_and_ttlcache():

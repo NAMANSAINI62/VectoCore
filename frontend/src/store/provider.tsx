@@ -5,7 +5,7 @@ import { Provider } from 'react-redux';
 import { store } from './index';
 import { cacheApi } from './cacheApi';
 
-const GLOBAL_SYNC_INTERVAL_MS = 3000;
+const GLOBAL_SYNC_INTERVAL_MS = 15000;
 
 function GlobalAutoSync() {
   useEffect(() => {
@@ -20,7 +20,7 @@ function GlobalAutoSync() {
         return;
       }
       store.dispatch(
-        cacheApi.util.invalidateTags(['CacheEntries', 'CacheStats', 'Models', 'Providers'])
+        cacheApi.util.invalidateTags(['CacheEntries', 'CacheStats', 'Models'])
       );
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('vectocore:sync'));

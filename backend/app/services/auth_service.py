@@ -22,7 +22,7 @@ from app.models.auth_otp import AuthOtp
 from app.models.user import User
 from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
-from app.services.email_service import is_smtp_configured, send_otp_email
+from app.services.email_service import is_smtp_configured
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -124,7 +124,7 @@ class AuthService:
         if not is_smtp_configured():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Email OTP is not configured yet. Add SMTP_HOST, SMTP_USER, and SMTP_PASSWORD to backend/.env.",
+                detail="Email OTP is not configured yet. Add BREVO_API_KEY (or SMTP_HOST, SMTP_USER, and SMTP_PASSWORD) to backend/.env.",
             )
         now = datetime.now(timezone.utc)
         window_start = now - timedelta(minutes=10)
@@ -150,7 +150,7 @@ class AuthService:
             email=norm_email,
             otp_hash=self._hash_otp(norm_email, code),
             attempts=0,
-            expires_at=now + timedelta(minutes=5),
+            expires_at=now + timedelta(minutes=settings.EMAIL_OTP_EXPIRE_MINUTES),
         )
         self.db.add(otp_row)
         await self.db.commit()
@@ -172,7 +172,7 @@ class AuthService:
                 detail="OTP expired or not found. Please request a new code.",
             )
 
-        if otp_row.attempts >= 5:
+        if otp_row.attempts >= settings.EMAIL_OTP_MAX_ATTEMPTS:
             otp_row.consumed_at = now
             await self.db.commit()
             raise HTTPException(
@@ -184,7 +184,7 @@ class AuthService:
         if not hmac.compare_digest(expected_hash, otp_row.otp_hash):
             otp_row.attempts += 1
             await self.db.commit()
-            remaining = max(0, 5 - otp_row.attempts)
+            remaining = max(0, settings.EMAIL_OTP_MAX_ATTEMPTS - otp_row.attempts)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Invalid OTP code. {remaining} attempt(s) remaining.",
@@ -197,12 +197,6 @@ class AuthService:
     async def prepare_email_otp(self, email: str) -> str:
         """Create and persist a 6-digit login OTP so the endpoint can dispatch SMTP in the background."""
         return await self._create_and_hash_otp(email.strip().lower())
-
-    async def request_email_otp(self, email: str) -> None:
-        """Generate, hash, store, and email a 6-digit passwordless OTP."""
-        norm_email = email.strip().lower()
-        code = await self._create_and_hash_otp(norm_email)
-        await send_otp_email(norm_email, code, expire_minutes=5)
 
     async def verify_email_otp(self, email: str, code: str) -> tuple[User, str, str]:
         """Verify a 6-digit email OTP, auto-create the user if needed, and issue session tokens."""

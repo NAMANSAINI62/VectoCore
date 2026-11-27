@@ -15,13 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application source
 COPY . .
 
-# Keep embedding model cache inside the cloud container filesystem (no local host storage)
-ENV FASTEMBED_CACHE_PATH=/app/.cache/fastembed \
-    HF_HOME=/app/.cache/huggingface \
-    HF_HUB_DISABLE_SYMLINKS_WARNING=1 \
-    PORT=9417
-
-RUN mkdir -p /app/.cache/fastembed /app/.cache/huggingface
+ENV PORT=9417
 
 EXPOSE 9417
 

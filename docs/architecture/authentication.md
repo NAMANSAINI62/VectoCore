@@ -149,133 +149,125 @@ flowchart LR
   class Postgres storage;
   %% Legend: solid = normal calls; dashed = conditional; blue = application/storage; gray = user; amber = decision.
 ```
-Caption: On application load, the auth provider calls `/auth/me`; the backend validates the access token and loads the active user.
+Caption: On application load, the auth provider calls `/api/v1/auth/me`; the backend validates the access token and loads the active user.
 - Notice: Missing, invalid, expired, or inactive-user credentials are rejected by the auth dependency.
 - Notice: The provider clears its local user state if the current-user request fails.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#111214','primaryColor':'#102b4a','primaryTextColor':'#e6f0ff','primaryBorderColor':'#3d6f9f','lineColor':'#9aa4b2','clusterBkg':'#16181c','clusterBorder':'#2a2e35','fontSize':'15px'}}}%%
 flowchart LR
-  subgraph FE[Frontend API client]
-    Caller([API caller])
+  subgraph FE[Frontend]
+    LoginUI[Login OTP recovery view]
     AuthClient[Auth service]
     ApiClient[API client]
     Proxy[Next.js proxy]
   end
   subgraph API[Backend API]
-    Endpoint[Forgot-password endpoint]
-    Reset[Password reset service]
+    Endpoint[POST /password-otp/request]
+    Service[Auth service]
     Known{Active user?}
-    Security[Token security]
-    Repos[Reset repository]
+    Security[OTP hash security]
+    SMTP[Email service]
   end
   subgraph DB[Storage]
-    Postgres[(PostgreSQL)]
+    Postgres[(PostgreSQL auth_otps)]
   end
 
-  Caller -->|1. reset request| AuthClient
-  AuthClient -->|2. POST reset| ApiClient
+  LoginUI -->|1. request reset OTP| AuthClient
+  AuthClient -->|2. POST password-otp/request| ApiClient
   ApiClient -->|3. send request| Proxy
   Proxy -->|4. forward request| Endpoint
-  Endpoint -->|5. create token| Reset
-  Reset -->|6. check user| Known
-  Known -->|7. yes: generate| Security
-  Security -->|8. hash token| Repos
-  Repos -->|9. store token| Postgres
-  Known -.->|7. no: skip| Endpoint
-  Reset -.->|10. optional token| Endpoint
-  Endpoint -->|11. generic response| Proxy
-  Proxy -->|12. response| Caller
+  Endpoint -->|5. prepare reset OTP| Service
+  Service -->|6. check account| Known
+  Known -->|7. yes: hash 6-digit OTP| Security
+  Security -->|8. store hashed OTP| Postgres
+  Service -.->|9. background task| SMTP
+  Known -.->|7. no: skip silently| Endpoint
+  Endpoint -->|10. generic response| Proxy
+  Proxy -->|11. response| LoginUI
 
-  classDef user fill:#172b3c,stroke:#7b8794,color:#f1f5f9;
   classDef frontend fill:#12365a,stroke:#4b91d1,color:#e6f0ff,stroke-width:2px;
   classDef backend fill:#163d63,stroke:#4b91d1,color:#e6f0ff,stroke-width:2px;
   classDef decision fill:#563c14,stroke:#d9a441,color:#fff7df,stroke-width:2px;
   classDef storage fill:#12365a,stroke:#4b91d1,color:#e6f0ff,stroke-width:2px;
-  class Caller user;
-  class AuthClient,ApiClient,Proxy frontend;
-  class Endpoint,Reset,Security,Repos backend;
+  class LoginUI,AuthClient,ApiClient,Proxy frontend;
+  class Endpoint,Service,Security,SMTP backend;
   class Known decision;
   class Postgres storage;
-  %% Legend: solid = normal calls; dashed = conditional; blue = application/storage; gray = user; amber = decision.
+  %% Legend: solid = normal calls; dashed = conditional; blue = application/storage; amber = decision.
 ```
-Caption: Forgot-password requests always return a generic confirmation; active users get a hashed, expiring token stored in PostgreSQL.
-- Notice: The endpoint discards the raw token; no email or delivery service is wired here.
-- Notice: No forgot-password screen was found under `frontend/src/app`; only API helper methods exist.
+Caption: Password reset requests via `/api/v1/auth/password-otp/request` return a generic confirmation to prevent account enumeration; active users get a hashed, expiring 6-digit OTP stored in `auth_otps` and emailed via FastAPI `BackgroundTasks`.
+- Notice: Both passwordless sign-in (`/api/v1/auth/otp/*`) and password recovery (`/api/v1/auth/password-otp/*`) share the `auth_otps` table and SMTP delivery pipeline.
+- Notice: Users trigger recovery directly from the `/login` screen without a separate legacy reset-link token table.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#111214','primaryColor':'#102b4a','primaryTextColor':'#e6f0ff','primaryBorderColor':'#3d6f9f','lineColor':'#9aa4b2','clusterBkg':'#16181c','clusterBorder':'#2a2e35','fontSize':'15px'}}}%%
 flowchart LR
-  subgraph FE[Frontend API client]
-    Caller([API caller])
+  subgraph FE[Frontend]
+    LoginUI[Login OTP reset form]
     AuthClient[Auth service]
     ApiClient[API client]
     Proxy[Next.js proxy]
   end
   subgraph API[Backend API]
-    Endpoint[Reset-password endpoint]
-    Reset[Password reset service]
-    Security[Token security]
-    Repos[Reset user session repos]
-    Valid{Token valid?}
+    Endpoint[POST /password-otp/reset]
+    Service[Auth service]
+    Valid{OTP valid and unexpired?}
+    Security[Argon2id password hash]
+    Sessions[Session repository]
   end
   subgraph DB[Storage]
     Postgres[(PostgreSQL)]
   end
 
-  Caller -->|1. submit reset| AuthClient
-  AuthClient -->|2. POST reset| ApiClient
+  LoginUI -->|1. submit OTP + new password| AuthClient
+  AuthClient -->|2. POST password-otp/reset| ApiClient
   ApiClient -->|3. send request| Proxy
   Proxy -->|4. forward request| Endpoint
-  Endpoint -->|5. validate reset| Reset
-  Reset -->|6. hash token| Security
-  Reset -->|7. load record| Repos
-  Repos -->|8. query token| Postgres
-  Repos -->|9. token state| Valid
-  Valid -->|10. yes: update| Security
-  Security -->|11. hash password| Reset
-  Reset -->|12. mark token| Repos
-  Reset -->|13. revoke sessions| Repos
-  Valid -.->|10. no: reject token| Endpoint
-  Repos -->|14. persist| Postgres
-  Endpoint -->|15. response| Proxy
-  Proxy -->|16. response| Caller
+  Endpoint -->|5. reset_password_with_otp| Service
+  Service -->|6. verify and consume OTP| Postgres
+  Postgres -->|7. OTP state| Valid
+  Valid -->|8. yes: hash password| Security
+  Security -->|9. update password_hash| Postgres
+  Service -->|10. revoke all sessions| Sessions
+  Sessions -->|11. revoke rows| Postgres
+  Valid -.->|8. no: reject OTP| Endpoint
+  Endpoint -->|12. response| Proxy
+  Proxy -->|13. response| LoginUI
 
-  classDef user fill:#172b3c,stroke:#7b8794,color:#f1f5f9;
   classDef frontend fill:#12365a,stroke:#4b91d1,color:#e6f0ff,stroke-width:2px;
   classDef backend fill:#163d63,stroke:#4b91d1,color:#e6f0ff,stroke-width:2px;
   classDef decision fill:#563c14,stroke:#d9a441,color:#fff7df,stroke-width:2px;
   classDef storage fill:#12365a,stroke:#4b91d1,color:#e6f0ff,stroke-width:2px;
-  class Caller user;
-  class AuthClient,ApiClient,Proxy frontend;
-  class Endpoint,Reset,Security,Repos backend;
+  class LoginUI,AuthClient,ApiClient,Proxy frontend;
+  class Endpoint,Service,Security,Sessions backend;
   class Valid decision;
   class Postgres storage;
-  %% Legend: solid = normal calls; dashed = conditional; blue = application/storage; gray = user; amber = decision.
+  %% Legend: solid = normal calls; dashed = conditional; blue = application/storage; amber = decision.
 ```
-Caption: The reset endpoint validates a single-use, unexpired token, changes the password, and revokes the user’s existing sessions.
-- Notice: Invalid, expired, or already-used tokens are rejected.
-- Notice: Password reset revokes every active session for that user.
+Caption: `/api/v1/auth/password-otp/reset` verifies and consumes the 6-digit OTP, Argon2id-hashes the new password, marks the user verified, and revokes every active refresh session for that user.
+- Notice: Invalid, expired, or already-consumed OTPs are rejected.
+- Notice: Password reset revokes all existing sessions via `session_repo.revoke_all_user_sessions(user.id)`.
 
 Evidence
-- `frontend/src/features/auth/login.tsx:13-37`
-- `frontend/src/features/auth/register.tsx:12-34`
-- `frontend/src/features/auth/provider.tsx:17-47`
-- `frontend/src/features/auth/service.ts:10-45`
-- `frontend/src/lib/apiClient.ts:1-42`
-- `frontend/src/app/api/[...path]/route.ts:1-58`
-- `backend/app/api/v1/router.py:1-15`
-- `backend/app/main.py:106-107`
-- `backend/app/api/v1/endpoints/auth.py:22-197`
-- `backend/app/services/auth_service.py:24-135`
-- `backend/app/core/security.py:13-72`
-- `backend/app/dependencies/auth.py:14-61`
-- `backend/app/repositories/user_repository.py:9-54`
-- `backend/app/repositories/session_repository.py:10-66`
-- `backend/app/services/reset_service.py:17-77`
-- `backend/app/repositories/reset_token_repo.py:10-53`
-- `frontend/src/app/login/page.tsx:1-5`
-- `frontend/src/app/register/page.tsx:1-5`
-- `backend/app/models/user.py:11-67`
-- `backend/app/models/user_session.py:11-54`
-- `UNVERIFIED: frontend forgot/reset page; no such page appeared in the inspected frontend/src/app file list.`
+- `frontend/src/features/auth/login.tsx`
+- `frontend/src/features/auth/register.tsx`
+- `frontend/src/features/auth/AuthFormParts.tsx`
+- `frontend/src/features/auth/provider.tsx`
+- `frontend/src/features/auth/service.ts:11-66`
+- `frontend/src/lib/apiClient.ts`
+- `frontend/src/app/api/[...path]/route.ts`
+- `frontend/src/app/login/page.tsx`
+- `frontend/src/app/register/page.tsx`
+- `backend/app/api/v1/router.py`
+- `backend/app/main.py`
+- `backend/app/api/v1/endpoints/auth.py:92-438`
+- `backend/app/services/auth_service.py:1-325`
+- `backend/app/services/email_service.py`
+- `backend/app/core/security.py`
+- `backend/app/dependencies/auth.py`
+- `backend/app/repositories/user_repository.py`
+- `backend/app/repositories/session_repository.py`
+- `backend/app/models/user.py`
+- `backend/app/models/user_session.py`
+- `backend/app/models/auth_otp.py`

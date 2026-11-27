@@ -76,10 +76,3 @@ class UserRepository:
         await self.db.commit()
         await self.db.refresh(user)
         return user
-
-    async def update_password(self, user: User, new_password_hash: str) -> User:
-        """Update user hashed password."""
-        user.password_hash = new_password_hash
-        await self.db.commit()
-        await self.db.refresh(user)
-        return user

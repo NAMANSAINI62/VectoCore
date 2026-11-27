@@ -40,15 +40,13 @@ class GuardrailsSettings(BaseSettings):
     GUARDRAILS_TOOL_MODE: Literal["off", "shadow", "enforce"] = "shadow"
 
     # Configurable detector model IDs (never hardcoded in detector logic)
-    GUARDRAILS_SELF_CHECK_PROVIDER: Literal["groq"] = "groq"
     GUARDRAILS_SELF_CHECK_MODEL_ID: str = "openai/gpt-oss-20b"
-    GUARDRAILS_CONTENT_SAFETY_PROVIDER: Literal["nim"] = "nim"
     GUARDRAILS_CONTENT_SAFETY_MODEL_ID: str = "nvidia/llama-3.1-nemotron-safety-guard-8b-v3"
     GUARDRAILS_SPACY_MODEL_NAME: str = "en_core_web_sm"
 
     # Per-detector timeout budgets (seconds)
     GUARDRAILS_SELF_CHECK_TIMEOUT_SEC: float = 4.0
-    GUARDRAILS_CONTENT_SAFETY_TIMEOUT_SEC: float = 4.0
+    GUARDRAILS_CONTENT_SAFETY_TIMEOUT_SEC: float = 10.0
     GUARDRAILS_PII_TIMEOUT_SEC: float = 1.0
     GUARDRAILS_SECRET_SCAN_TIMEOUT_SEC: float = 1.0
 
@@ -63,7 +61,7 @@ class GuardrailsSettings(BaseSettings):
     GUARDRAILS_CB_RESET_TIMEOUT_SEC: int = 30
 
     # Deterministic input size limit
-    GUARDRAILS_MAX_INPUT_CHARS: int = 12000
+    GUARDRAILS_MAX_INPUT_CHARS: int = 25000
 
     # Rate limiting & abuse protection (sized to Groq 8000 TPM / 1000 RPD)
     RATE_LIMIT_USER_RPM: int = 10
@@ -71,7 +69,6 @@ class GuardrailsSettings(BaseSettings):
     RATE_LIMIT_IP_RPM: int = 60
     RATE_LIMIT_REQUEST_DEADLINE_SEC: float = 60.0
     RATE_LIMIT_FAIL_OPEN: bool = True
-    RATE_LIMIT_JUDGE_CACHE_TTL_SEC: int = 3600
 
     @field_validator("GUARDRAILS_POLICY_VERSION")
     @classmethod

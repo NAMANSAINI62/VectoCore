@@ -29,6 +29,7 @@ class ChatState(TypedDict, total=False):
     latency_ms: int
     is_cached: bool
     skip_cache: bool
+    fetch_reason: str | None
     cache_lookup: Any
     conversation_language_preference: str | None
     input_language: str
@@ -37,4 +38,3 @@ class ChatState(TypedDict, total=False):
     language_valid: bool
     output_blocked: bool
     output_reason_category: str | None
-    proven_context_independent: bool

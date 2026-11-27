@@ -306,11 +306,6 @@ def test_group_g_historical_snapshot_and_exact_hit_isolation():
         matched_entry_id=None,
         matched_query="What are the benefits of Python?",
         response_preview="Cached benefits response",
-        related_candidates=None,
-        variant_reused=False,
-        translation_performed=False,
-        translation_failed=False,
-        translation_latency_ms=0,
         created_at=now,
     )
     resp = TelemetryItemResponse.model_validate(legacy_row)

@@ -13,16 +13,16 @@ export function Navbar() {
   if (pathname !== '/login' && pathname !== '/register') return null;
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-zinc-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
+    <header className="sticky top-0 z-40 w-full border-b border-[var(--border)] bg-[var(--card)]/90 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href="/" className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-          Semantic Cache Chat
+        <Link href="/" className="text-sm font-semibold tracking-tight text-[var(--foreground)]">
+          VectoCore
         </Link>
 
         <nav aria-label="Account navigation" className="flex items-center gap-3">
           {!loading && user ? (
             <>
-              <span className="flex items-center gap-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+              <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)]">
                 <UserIcon className="h-3.5 w-3.5" aria-hidden="true" />
                 {user.full_name}
               </span>

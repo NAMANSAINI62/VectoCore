@@ -351,7 +351,7 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar({
                           setIsVisible(false);
                           setPendingAction({ type: 'delete', item });
                         }}
-                        className="flex h-6 w-6 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--background)]/90 text-rose-500/85 shadow-xs transition hover:border-rose-500/50 hover:bg-rose-500/15 hover:text-rose-600 dark:hover:text-rose-400 focus:outline-none"
+                        className="flex h-6 w-6 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--background)]/90 text-rose-500/85 shadow-xs transition hover:border-rose-500/50 hover:bg-rose-500/15 hover:text-rose-600 focus:outline-none"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>

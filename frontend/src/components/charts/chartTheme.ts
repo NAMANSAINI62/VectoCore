@@ -43,14 +43,9 @@ export function formatShortDate(dateStr: string): string {
 const KNOWN_MODEL_DISPLAY_NAMES: Record<string, string> = {
   'openai/gpt-oss-20b': 'GPT-OSS 20B',
   'openai/gpt-oss-120b': 'GPT-OSS 120B',
-  'dots-studio/dots-3-note-preview:free': 'Dots3-Note',
-  'liquid/lfm-3-1.7b:free': 'LFM3-1.7B',
-  'nvidia/nemotron-3-ultra-550b-a55b:free': 'Nemotron 3 Ultra',
+  'command-a-03-2025': 'Command A',
   'nvidia/nemotron-3.5-bolt-e4b': 'Nemotron 3.5 Bolt',
   'nvidia/nemotron-3.5-super-vl-120b-a12b': 'Nemotron 3.5 Super VL',
-  'gemma-4-31b-it': 'Gemma 4 31B',
-  'gemini-auto': 'Gemini Auto',
-  'gemini-3.8-flash': '3.8 Flash',
   'gemini-3-flash-preview': '3 Flash',
   'gemini-flash-lite-latest': 'Flash-Lite',
   'gemini-3.5-flash-lite': '3.5 Flash-Lite',
@@ -72,9 +67,4 @@ export function formatLatencyMs(ms: number): string {
   if (!Number.isFinite(ms)) return '0ms';
   if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`;
   return `${Math.round(ms)}ms`;
-}
-
-export function formatUsd(amount: number): string {
-  if (!Number.isFinite(amount)) return '$0.0000';
-  return `$${amount.toFixed(4)}`;
 }

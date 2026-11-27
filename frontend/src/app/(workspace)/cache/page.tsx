@@ -16,7 +16,6 @@ import {
   Eye,
   Globe,
   Layers,
-  RefreshCw,
   Search,
   Trash2,
   X,
@@ -35,7 +34,6 @@ export default function CachePage() {
   const [selectedEntry, setSelectedEntry] = useState<CacheEntry | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<CacheEntry | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [refreshSpin, setRefreshSpin] = useState(false);
 
   const quickLanguages = useMemo(
     () => SUPPORTED_LANGUAGES.filter((item) => QUICK_LANGUAGE_CODES.includes(item.code)),
@@ -47,7 +45,7 @@ export default function CachePage() {
     setPage(1);
   };
 
-  const { data, isLoading, isFetching, refetch } = useGetCacheEntriesQuery(
+  const { data, isLoading } = useGetCacheEntriesQuery(
     {
       page,
       pageSize: 15,
@@ -62,12 +60,6 @@ export default function CachePage() {
   );
 
   const [deleteEntry, { isLoading: isDeleting }] = useDeleteCacheEntryMutation();
-
-  const handleRefresh = async () => {
-    setRefreshSpin(true);
-    await refetch();
-    setTimeout(() => setRefreshSpin(false), 450);
-  };
 
   const handleConfirmDelete = async () => {
     if (!confirmDelete) return;

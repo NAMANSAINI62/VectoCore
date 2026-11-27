@@ -125,3 +125,58 @@ def test_web_search_stub_and_no_app_db_tools() -> None:
     tool_names = {t["name"] for t in get_approved_tool_schemas()}
     assert "run_sql_query" not in tool_names
     assert not any("sql" in n or "db" in n for n in tool_names)
+
+
+def test_mcp_call_tool_propagates_is_error_as_exception() -> None:
+    from types import SimpleNamespace
+    from app.mcp.client_manager import MCPClientManager
+    from app.mcp.config import MCPServerConfig
+
+    mgr = MCPClientManager()
+    mgr._configs["fetch"] = MCPServerConfig(name="fetch", transport="stdio", command="python", allowlisted_tools=["get_page"])
+    ssrf_sess = MagicMock()
+    ssrf_sess.call_tool = AsyncMock(
+        return_value=SimpleNamespace(
+            is_error=True,
+            content=[SimpleNamespace(text="Error executing tool get_page: SSRF blocked: non-public IP '127.0.0.1' is not allowed.")],
+        )
+    )
+    mgr._sessions["fetch"] = ssrf_sess
+
+    async def _run() -> None:
+        with pytest.raises(PermissionError, match="SSRF blocked"):
+            await mgr.call_tool("fetch", "get_page", {"url": "http://127.0.0.1:9417/api/v1/health"})
+
+        http_sess = MagicMock()
+        http_sess.call_tool = AsyncMock(
+            return_value=SimpleNamespace(
+                is_error=True,
+                content=[SimpleNamespace(text="Error executing tool get_page: HTTP 403 Forbidden: target site rejected automated fetch.")],
+            )
+        )
+        mgr._sessions["fetch"] = http_sess
+        with pytest.raises(RuntimeError, match="HTTP 403"):
+            await mgr.call_tool("fetch", "get_page", {"url": "https://www.cloudflare.com/"})
+
+    asyncio.run(_run())
+
+
+def test_live_tool_detection_strictly_separates_fetch_and_search() -> None:
+    from app.chatbot.graph import _detect_live_tool_calls
+
+    with patch("app.mcp.config.get_mcp_settings") as mock_cfg:
+        mock_cfg.return_value.MCP_ENABLED = True
+        fetch_calls = _detect_live_tool_calls("Summarize https://www.postgresql.org/about/ today")
+        assert [c["name"] for c in fetch_calls] == ["fetch__get_page"]
+
+        for q in (
+            "Search the web for latest Python release",
+            "आज भारत में सोने का भाव क्या है? वेब सर्च करके बताओ",
+            "Aaj Delhi ka mausam kya hai?",
+            "¿Cuál es el clima hoy en Madrid? Busca en la web.",
+            "Quelles sont les dernières actualités Docker aujourd'hui ?",
+        ):
+            search_calls = _detect_live_tool_calls(q)
+            assert [c["name"] for c in search_calls] == ["search__web_search"], f"Failed trigger for: {q}"
+
+        assert _detect_live_tool_calls("What is Docker?") == []

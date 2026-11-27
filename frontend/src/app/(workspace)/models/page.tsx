@@ -12,7 +12,6 @@ import {
   Activity,
   Cpu,
   Link2,
-  RefreshCw,
   Search,
   Sparkles,
   X,
@@ -23,23 +22,14 @@ import {
   TokenConsumptionChart,
 } from '@/components/charts';
 
-const RANGE_OPTIONS = [
-  { label: 'All time', days: undefined },
-  { label: '7D', days: 7 },
-  { label: '30D', days: 30 },
-  { label: '90D', days: 90 },
-];
-
 export default function ModelsPage() {
   const { selectedDays, appliedCustom } = useAppSelector((state) => state.dateRange);
-  const [refreshSpin, setRefreshSpin] = useState(false);
   const [providerFilter, setProviderFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
 
   const {
     data: models = [],
     isLoading: modelsLoading,
-    refetch: refetchModels,
   } = useGetModelsQuery(undefined, { refetchOnMountOrArgChange: true });
 
   const queryParams = useMemo(
@@ -51,19 +41,11 @@ export default function ModelsPage() {
     data: stats,
     isLoading: statsLoading,
     isError: statsError,
-    isFetching,
-    refetch,
   } = useGetCacheStatsQuery(queryParams, {
     pollingInterval: 30000,
     skipPollingIfUnfocused: true,
     refetchOnMountOrArgChange: 15,
   });
-
-  const handleRefresh = async () => {
-    setRefreshSpin(true);
-    await Promise.all([refetch(), refetchModels()]);
-    setTimeout(() => setRefreshSpin(false), 450);
-  };
 
   const activeModelKeys = useMemo(
     () => new Set(models.map((m) => `${m.provider}:${m.id}`)),
@@ -206,6 +188,8 @@ export default function ModelsPage() {
           </div>
           <div className="text-[11px] mt-1" style={{ color: 'var(--muted-foreground)' }}>
             {stats?.cache_hits ?? 0} hits · {stats?.cache_misses ?? 0} misses
+            {(stats?.fetch_requests ?? 0) > 0 ? ` · ${stats?.fetch_requests} fetch` : ''}
+            {(stats?.blocked_requests ?? 0) > 0 ? ` · ${stats?.blocked_requests} blocked` : ''}
           </div>
         </div>
 

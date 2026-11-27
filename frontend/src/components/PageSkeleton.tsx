@@ -69,7 +69,7 @@ export function WorkspaceShellSkeleton() {
             <Layers className="h-4 w-4" aria-hidden="true" />
           </span>
           <span className="text-sm font-semibold tracking-tight text-[var(--foreground)]">
-            Vector Cache
+            VectoCore
           </span>
         </div>
         <div className="flex items-center gap-2.5 animate-pulse">

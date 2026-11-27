@@ -45,6 +45,8 @@ export default function OverviewPage() {
             exactHits={stats?.exact_hits ?? 0}
             semanticHits={stats?.semantic_hits ?? 0}
             misses={stats?.cache_misses ?? 0}
+            blocked={stats?.blocked_requests ?? 0}
+            fetchCount={stats?.fetch_requests ?? 0}
             totalRequests={stats?.total_requests ?? 0}
             hitRatePct={stats?.hit_rate_pct}
             isLoading={isLoading}

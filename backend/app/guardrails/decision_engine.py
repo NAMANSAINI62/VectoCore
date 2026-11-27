@@ -6,32 +6,10 @@ from app.guardrails.schemas import (
     LayerMode,
     LayerResult,
     ScoreBand,
+    has_self_harm_category,
+    is_privacy_only_categories,
+    normalize_category,
 )
-
-# Categories from content-safety models that represent privacy/PII rather than safety threats.
-# Policy rule: Content-safety "privacy/PII" categories map to REDACT or ALLOW, never BLOCK/FALLBACK.
-_PRIVACY_PII_CATEGORIES = frozenset({
-    "pii",
-    "privacy",
-    "pii/privacy",
-    "personal_data",
-    "personal information",
-    "sensitive_data",
-    "private_information",
-    "s15",
-})
-
-# Categories representing self-harm or suicide.
-# Policy rule: Self-harm gets a supportive crisis-helpline message, not a cold block.
-_SELF_HARM_CATEGORIES = frozenset({
-    "self_harm",
-    "self-harm",
-    "suicide",
-    "suicide_or_self_harm",
-    "suicide and self harm",
-    "self harm",
-    "s11",
-})
 
 _DECISION_SEVERITY: dict[Decision, int] = {
     Decision.ALLOW: 0,
@@ -41,16 +19,30 @@ _DECISION_SEVERITY: dict[Decision, int] = {
     Decision.BLOCK: 4,
 }
 
+_BAND_SEVERITY: dict[ScoreBand, int] = {
+    ScoreBand.LOW: 0,
+    ScoreBand.UNAVAILABLE: 1,
+    ScoreBand.MEDIUM: 2,
+    ScoreBand.HIGH: 3,
+    ScoreBand.CRITICAL: 4,
+}
 
-def build_generic_safe_message(request_id: str) -> str:
+_DETECTOR_PRIORITY: dict[str, int] = {
+    "self_check_input": 1,
+    "content_safety_input": 2,
+    "content_safety_output": 2,
+    "presidio_pii": 3,
+    "secret_scanner": 4,
+}
+
+
+def build_generic_safe_message() -> str:
     """Return a safe, generic refusal message without exposing internal IDs or detector details."""
-    _ = request_id
     return "I cannot fulfill this request due to safety guidelines."
 
 
-def build_supportive_self_harm_message(request_id: str) -> str:
+def build_supportive_self_harm_message() -> str:
     """Return a supportive crisis-resource message when self-harm is detected."""
-    _ = request_id
     return (
         "If you or someone you know is going through a difficult time or having thoughts of self-harm, "
         "please know that you are not alone and caring support is available right now. "
@@ -60,59 +52,8 @@ def build_supportive_self_harm_message(request_id: str) -> str:
     )
 
 
-def _normalize_category(cat: str) -> str:
-    return (cat or "").strip().lower().replace("_", " ")
-
-
-def is_privacy_only_categories(categories: list[str]) -> bool:
-    """Return True if categories are non-empty and every category is a privacy/PII category."""
-    if not categories:
-        return False
-    for raw in categories:
-        norm_space = _normalize_category(raw)
-        norm_under = norm_space.replace(" ", "_")
-        if norm_space not in _PRIVACY_PII_CATEGORIES and norm_under not in _PRIVACY_PII_CATEGORIES:
-            return False
-    return True
-
-
-def has_self_harm_category(categories: list[str]) -> bool:
-    """Return True if any category corresponds to self-harm or suicide."""
-    for raw in categories:
-        norm_space = _normalize_category(raw)
-        norm_under = norm_space.replace(" ", "_")
-        if (
-            norm_space in _SELF_HARM_CATEGORIES
-            or norm_under in _SELF_HARM_CATEGORIES
-            or "self harm" in norm_space
-            or "suicide" in norm_space
-        ):
-            return True
-    return False
-
-
 class DecisionEngine:
     """Evaluates detector LayerResults into a single GuardrailVerdict according to layer mode and policy."""
-
-    @staticmethod
-    def map_content_safety_categories(
-        categories: list[str],
-        has_redacted_text: bool = False,
-    ) -> tuple[Decision, ScoreBand, bool]:
-        """Map content-safety categories to (Decision, ScoreBand, is_self_harm).
-
-        - Empty categories -> (ALLOW, LOW, False)
-        - Privacy/PII-only categories -> (REDACT if has_redacted_text else ALLOW, MEDIUM, False); never BLOCK.
-        - Self-harm categories -> (FALLBACK, CRITICAL, True)
-        - Other unsafe categories -> (FALLBACK, HIGH, False)
-        """
-        if not categories:
-            return Decision.ALLOW, ScoreBand.LOW, False
-        if has_self_harm_category(categories):
-            return Decision.FALLBACK, ScoreBand.CRITICAL, True
-        if is_privacy_only_categories(categories):
-            return (Decision.REDACT if has_redacted_text else Decision.ALLOW), ScoreBand.MEDIUM, False
-        return Decision.FALLBACK, ScoreBand.HIGH, False
 
     def evaluate(
         self,
@@ -213,7 +154,14 @@ class DecisionEngine:
             reason_category: str | None = "guardrails_degraded"
         else:
             healthy = [r for r in normalized_results if not r.degraded]
-            highest = max(healthy, key=lambda r: _DECISION_SEVERITY[r.decision])
+            highest = max(
+                healthy,
+                key=lambda r: (
+                    _DECISION_SEVERITY[r.decision],
+                    _BAND_SEVERITY.get(r.score_band, 0),
+                    _DETECTOR_PRIORITY.get(r.detector, 0) if r.decision != Decision.ALLOW else 0,
+                ),
+            )
             raw_decision = highest.decision
             if layer == "input" and raw_decision == Decision.BLOCK:
                 raw_decision = Decision.FALLBACK
@@ -222,7 +170,7 @@ class DecisionEngine:
             elif self_harm_detected:
                 reason_category = "self_harm"
             elif highest.categories:
-                reason_category = _normalize_category(highest.categories[0]).replace(" ", "_")
+                reason_category = normalize_category(highest.categories[0]).replace(" ", "_")
             else:
                 reason_category = highest.detector
 
@@ -233,9 +181,9 @@ class DecisionEngine:
             effective_decision = raw_decision
             if effective_decision in (Decision.BLOCK, Decision.FALLBACK, Decision.REQUIRE_REVIEW):
                 if self_harm_detected:
-                    user_safe_message = build_supportive_self_harm_message(request_id)
+                    user_safe_message = build_supportive_self_harm_message()
                 else:
-                    user_safe_message = build_generic_safe_message(request_id)
+                    user_safe_message = build_generic_safe_message()
             else:
                 user_safe_message = None
 

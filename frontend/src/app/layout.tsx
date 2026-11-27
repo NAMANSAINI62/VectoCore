@@ -6,7 +6,7 @@ import { Navbar } from '@/components/Navbar';
 import { ThemeProvider } from '@/components/ThemeProvider';
 
 export const metadata: Metadata = {
-  title: 'Vector Cache — AI Semantic Cache',
+  title: 'VectoCore — AI Semantic Cache',
   description: 'Semantic Cache Engine & AI Workspace',
 };
 

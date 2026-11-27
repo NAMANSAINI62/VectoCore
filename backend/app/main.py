@@ -3,7 +3,6 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from typing import AsyncGenerator
 import uvicorn
 from fastapi import FastAPI, Request, status
@@ -12,14 +11,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config.settings import get_settings
 from app.api.v1.router import api_router
 from app.database.base import Base
-from app.database.session import engine
+from app.database.session import async_session_factory, engine
+from app.api.v1.endpoints.chatbot import close_audio_client
 from app.cache.redis_client import close_redis_connection
+from app.services.cache_engine import purge_expired_cache_entries
 
 # Import models so SQLAlchemy metadata registers them
 import app.models.user
 import app.models.auth_otp
 import app.models.user_session
-import app.models.password_reset
 import app.models.chat
 import app.models.cache
 from app.guardrails.service import get_guardrails_service
@@ -32,25 +32,12 @@ logger = logging.getLogger("semantic_cache_api")
 settings = get_settings()
 
 
-async def _purge_expired_cache_entries_once() -> int:
-    """Delete expired cache_entries rows while keeping cache_telemetry, guardrail_events, and chat history intact."""
-    from sqlalchemy import delete
-    from app.database.session import async_session_factory
-    from app.models.cache import CacheEntry
-
-    async with async_session_factory() as session:
-        result = await session.execute(
-            delete(CacheEntry).where(CacheEntry.expires_at <= datetime.now(timezone.utc))
-        )
-        await session.commit()
-        return int(result.rowcount or 0)
-
-
 async def _expired_cache_cleanup_loop(interval_seconds: int = 3600) -> None:
     """Periodically purge expired cache_entries rows on startup and every hour."""
     while True:
         try:
-            deleted = await _purge_expired_cache_entries_once()
+            async with async_session_factory() as session:
+                deleted = await purge_expired_cache_entries(session)
             if deleted > 0:
                 logger.info(f"Expired cache cleanup removed {deleted} stale cache_entries row(s).")
         except asyncio.CancelledError:
@@ -61,7 +48,7 @@ async def _expired_cache_cleanup_loop(interval_seconds: int = 3600) -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager for startup and shutdown routines."""
     logger.info(f"Starting {settings.APP_NAME} in [{settings.APP_ENV}] mode...")
 
@@ -92,6 +79,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         pass
     await mcp_manager.shutdown()
     await guardrails_service.shutdown()
+    await close_audio_client()
     await close_redis_connection()
 
 

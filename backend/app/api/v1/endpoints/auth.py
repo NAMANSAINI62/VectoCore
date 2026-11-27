@@ -2,14 +2,16 @@
 
 import hashlib
 import hmac
+import logging
 import secrets
 import time
 from urllib.parse import urlencode
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import get_settings
+from app.core.exceptions import AuthenticationError
 from app.database.session import get_db_session
 from app.dependencies.auth import get_current_user
 from app.guardrails.rate_limiter import RedisRateLimiter
@@ -19,20 +21,17 @@ from app.schemas.auth import (
     ChangePasswordRequest,
     EmailOtpRequest,
     EmailOtpVerifyRequest,
-    ForgotPasswordRequest,
     LoginRequest,
     MessageResponse,
     PasswordResetOtpRequest,
-    RefreshResponse,
     RegisterRequest,
-    ResetPasswordRequest,
     TokenResponse,
 )
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
 from app.services.email_service import is_smtp_configured, send_otp_email
-from app.services.reset_service import PasswordResetService
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 settings = get_settings()
 
@@ -76,6 +75,20 @@ def _clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(key="refresh_token", path="/api/v1/auth")
 
 
+def _issue_token_response(
+    response: Response,
+    access_token: str,
+    refresh_token: str,
+) -> TokenResponse:
+    """Set HttpOnly auth cookies and return the standardized token payload."""
+    _set_auth_cookies(response, access_token, refresh_token)
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
+
 @router.post(
     "/register",
     response_model=UserResponse,
@@ -117,17 +130,12 @@ async def login(
         email=payload.email,
         password=payload.password,
     )
-    _set_auth_cookies(response, access_token, refresh_token)
-    return TokenResponse(
-        access_token=access_token,
-        token_type="bearer",
-        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-    )
+    return _issue_token_response(response, access_token, refresh_token)
 
 
 @router.post(
     "/refresh",
-    response_model=RefreshResponse,
+    response_model=TokenResponse,
     status_code=status.HTTP_200_OK,
     summary="Renew access token using rotated refresh token",
 )
@@ -135,20 +143,14 @@ async def refresh_token(
     response: Response,
     refresh_token: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db_session),
-) -> RefreshResponse:
+) -> TokenResponse:
     """Rotate refresh token and issue fresh access token."""
     if not refresh_token:
-        from app.core.exceptions import AuthenticationError
         raise AuthenticationError(detail="Missing refresh token cookie")
 
     service = AuthService(db)
     new_access_token, new_refresh_token = await service.refresh_session(refresh_token)
-    _set_auth_cookies(response, new_access_token, new_refresh_token)
-    return RefreshResponse(
-        access_token=new_access_token,
-        token_type="bearer",
-        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-    )
+    return _issue_token_response(response, new_access_token, new_refresh_token)
 
 
 @router.post(
@@ -217,50 +219,6 @@ async def get_me(
 ) -> UserResponse:
     """Return identity of the authenticated user."""
     return UserResponse.model_validate(current_user)
-
-
-@router.post(
-    "/forgot-password",
-    response_model=MessageResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Request a password recovery token",
-)
-async def forgot_password(
-    payload: ForgotPasswordRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db_session),
-) -> MessageResponse:
-    """
-    Generate recovery token for email. Always returns a generic confirmation message
-    to prevent user account enumeration.
-    """
-    await RedisRateLimiter().check_endpoint_limit("auth_forgot_password", _client_ip(request), limit_per_min=5)
-    service = PasswordResetService(db)
-    _ = await service.request_password_reset(payload.email)
-    return MessageResponse(
-        message="If this email is registered, you will receive password reset instructions."
-    )
-
-
-@router.post(
-    "/reset-password",
-    response_model=MessageResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Reset password using recovery token",
-)
-async def reset_password(
-    payload: ResetPasswordRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db_session),
-) -> MessageResponse:
-    """Verify recovery token and apply new password."""
-    await RedisRateLimiter().check_endpoint_limit("auth_reset_password", _client_ip(request), limit_per_min=5)
-    service = PasswordResetService(db)
-    await service.reset_password(
-        raw_token=payload.token,
-        new_password=payload.new_password,
-    )
-    return MessageResponse(message="Password has been reset successfully. Please log in.")
 
 
 @router.get(
@@ -381,8 +339,7 @@ async def google_callback(
             info_resp.raise_for_status()
             info = info_resp.json()
     except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning("Google OAuth verification failed: %s", exc)
+        logger.warning("Google OAuth verification failed: %s", exc)
         return _error_redirect("Could not verify Google sign-in. Please try again.")
 
     if info.get("aud") != settings.GOOGLE_CLIENT_ID.strip():
@@ -422,7 +379,7 @@ async def request_email_otp(
     service = AuthService(db)
     norm_email = str(payload.email).strip().lower()
     code = await service.prepare_email_otp(norm_email)
-    background_tasks.add_task(send_otp_email, norm_email, code, 5, "sign-in")
+    background_tasks.add_task(send_otp_email, norm_email, code, settings.EMAIL_OTP_EXPIRE_MINUTES, "sign-in")
     return MessageResponse(message="A 6-digit verification code is being sent to your email.")
 
 
@@ -440,12 +397,7 @@ async def verify_email_otp(
     """Verify 6-digit OTP, provision/find user, and set HttpOnly session cookies."""
     service = AuthService(db)
     _, access_token, refresh_token = await service.verify_email_otp(payload.email, payload.code)
-    _set_auth_cookies(response, access_token, refresh_token)
-    return TokenResponse(
-        access_token=access_token,
-        token_type="bearer",
-        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-    )
+    return _issue_token_response(response, access_token, refresh_token)
 
 
 @router.post(
@@ -464,7 +416,7 @@ async def request_password_reset_otp(
     norm_email = str(payload.email).strip().lower()
     code = await service.prepare_password_reset_otp(norm_email)
     if code is not None:
-        background_tasks.add_task(send_otp_email, norm_email, code, 5, "password-reset")
+        background_tasks.add_task(send_otp_email, norm_email, code, settings.EMAIL_OTP_EXPIRE_MINUTES, "password-reset")
     return MessageResponse(
         message="If an account exists for that email, a 6-digit reset code is on its way."
     )

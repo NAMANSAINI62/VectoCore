@@ -73,7 +73,6 @@ services:
     container_name: sc_frontend
     restart: unless-stopped
     environment:
-      - NEXT_PUBLIC_API_BASE_URL=http://localhost:9417
       - BACKEND_INTERNAL_URL=http://backend:9417
     ports:
       - "4317:4317"

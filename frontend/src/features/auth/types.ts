@@ -27,3 +27,8 @@ export interface TokenResponse {
 export interface MessageResponse {
   message: string;
 }
+
+export interface AuthMethods {
+  google_enabled: boolean;
+  email_otp_enabled: boolean;
+}

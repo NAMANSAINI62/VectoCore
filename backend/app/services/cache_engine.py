@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import numpy as np
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache.redis_client import (
@@ -43,8 +43,6 @@ SYSTEM_PROMPT_VERSION = "v2-global-lang"
 
 async def purge_expired_cache_entries(db: AsyncSession) -> int:
     """Delete expired rows from cache_entries while keeping cache_telemetry, logs, and chat history intact."""
-    from sqlalchemy import delete
-
     now = datetime.now(timezone.utc)
     result = await db.execute(delete(CacheEntry).where(CacheEntry.expires_at <= now))
     await db.commit()
@@ -58,36 +56,6 @@ def normalize_query_for_cache(query: str) -> str:
     return text
 
 
-_FOLLOWUP_ANAPHORIC_RE = re.compile(
-    r"\b(?:"
-    r"that|this|these|those|it|its|above|previous|former|latter|"
-    r"step\s*\d+|point\s*\d+|option\s*\d+|part\s*\d+|"
-    r"iska|iske|iski|ispar|isme|uske|uska|uski|usme|"
-    r"continue|elaborate|simplify|summarize|"
-    r"aur\s+batao|aur\s+samjhao|example\s+do|udaharan\s+do"
-    r")\b",
-    re.IGNORECASE,
-)
-
-_STANDALONE_SHORT_FOLLOWUP_RE = re.compile(
-    r"^(?:why|how\s+so|what\s+about\s+\w+|give\s+(?:me\s+)?an?\s+example|show\s+(?:me\s+)?(?:an?\s+)?(?:example|code)|explain\s+(?:more|again)|tell\s+me\s+more)[\?\!\.\s]*$",
-    re.IGNORECASE,
-)
-
-
-def is_context_dependent_followup(query: str) -> bool:
-    """Return True when a query relies on prior conversation turns and should bypass global cache."""
-    text = (query or "").strip()
-    if not text:
-        return False
-    if _STANDALONE_SHORT_FOLLOWUP_RE.match(text):
-        return True
-    words = text.split()
-    if len(words) <= 8 and _FOLLOWUP_ANAPHORIC_RE.search(text):
-        return True
-    return False
-
-
 @dataclass
 class CacheLookupResult:
     """Outcome of checking exact and semantic cache layers."""
@@ -98,7 +66,6 @@ class CacheLookupResult:
     similarity_score: float | None = None
     cached_entry_id: uuid.UUID | None = None
     matched_query: str | None = None
-    related_candidates: list[dict[str, Any]] = field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0
     lookup_latency_ms: int = 0
@@ -108,12 +75,6 @@ class CacheLookupResult:
     input_language: str = "English"
     language_policy: str = "default"
     cache_source: str = "LLM API"
-    supported: bool = True
-    intent: str = "general"
-    variant_reused: bool = False
-    translation_performed: bool = False
-    translation_failed: bool = False
-    translation_latency_ms: int = 0
     matched_queries_snapshot: list[dict[str, Any]] = field(default_factory=list)
     rejected_candidates_snapshot: list[dict[str, Any]] = field(default_factory=list)
     validation_explanation: str | None = None
@@ -129,7 +90,8 @@ def compute_exact_cache_key(
     generation_params: str = "default",
     policy_version: str | None = None,
 ) -> str:
-    """Generate deterministic SHA-256 cache key scoped by owner, model, prompt version, policy version, params, and response language."""
+    """Generate deterministic SHA-256 cache key scoped by owner, prompt version, policy version, params, and response language (model-agnostic so cross-model hits share cache)."""
+    _ = (provider, model)
     pol_ver = policy_version or get_guardrails_settings().GUARDRAILS_POLICY_VERSION
     lang_slug = effective_response_language.strip().lower().replace(" ", "_")
     raw = (
@@ -285,7 +247,6 @@ class SemanticCacheEngine:
                 input_language=resolution.input_language,
                 language_policy=resolution.language_policy,
                 cache_source="LLM API",
-                supported=True,
             )
 
         # 1. L1 exact cache lookup
@@ -336,7 +297,6 @@ class SemanticCacheEngine:
                         input_language=resolution.input_language,
                         language_policy=resolution.language_policy,
                         cache_source="Redis Exact Cache",
-                        supported=True,
                     )
         except Exception as exc:
             logger.warning("Exact cache lookup failed gracefully: %s", exc)
@@ -357,10 +317,8 @@ class SemanticCacheEngine:
         )
 
         scored_candidates: list[tuple[float, CacheEntry]] = []
-        miss_candidates_map: dict[uuid.UUID, tuple[float, CacheEntry]] = {}
         best_raw_similarity = 0.0
         recall_floor = min(threshold, DEFAULT_BORDERLINE_RECALL_FLOOR) if use_llm_judge else threshold
-        relevance_floor = 0.28
 
         if (
             resolution.input_language == "Hinglish"
@@ -397,13 +355,11 @@ class SemanticCacheEngine:
                 best_raw_similarity = sim
             if sim >= recall_floor:
                 scored_candidates.append((sim, candidate))
-            if sim >= relevance_floor and candidate.query.strip().lower() != query.strip().lower():
-                miss_candidates_map[candidate.id] = (sim, candidate)
 
         scored_candidates.sort(key=lambda item: item[0], reverse=True)
 
-        # 3. INTENT & COMPATIBILITY VALIDATION ON CANDIDATES, THEN SELECT TOP 3 COMPATIBLE MATCHES
-        accepted_matches: list[tuple[float, CacheEntry, Any]] = []
+        # 3. INTENT & COMPATIBILITY VALIDATION (candidates are pre-sorted descending by similarity)
+        selected_match: tuple[float, CacheEntry, Any] | None = None
         rejected_candidates: list[dict[str, Any]] = []
         max_stage2_candidates = 10
 
@@ -462,15 +418,11 @@ class SemanticCacheEngine:
                 ))
                 continue
 
-            accepted_matches.append((sim, candidate, validation))
-            if len(accepted_matches) >= 1:
-                break
+            selected_match = (sim, candidate, validation)
+            break
 
-        if accepted_matches:
-            # Rank accepted compatible matches by actual cosine similarity and select the top 1 match
-            accepted_matches.sort(key=lambda item: item[0], reverse=True)
-            top_accepted = accepted_matches[:1]
-            best_sim, selected_candidate, best_validation = top_accepted[0]
+        if selected_match is not None:
+            best_sim, selected_candidate, best_validation = selected_match
 
             selected_candidate.hit_count += 1
             selected_candidate.last_hit_at = func.now()
@@ -478,10 +430,15 @@ class SemanticCacheEngine:
 
             matched_snapshot = [
                 _candidate_snapshot(
-                    cand, score, compatible=True, confidence=val.confidence,
-                    summary=val.intent_summary, reason=val.reason, rank=idx, selected=idx == 1,
+                    selected_candidate,
+                    best_sim,
+                    compatible=True,
+                    confidence=best_validation.confidence,
+                    summary=best_validation.intent_summary,
+                    reason=best_validation.reason,
+                    rank=1,
+                    selected=True,
                 )
-                for idx, (score, cand, val) in enumerate(top_accepted, start=1)
             ]
 
             lookup_latency = max(1, int((time.perf_counter() - t0) * 1000))
@@ -501,24 +458,10 @@ class SemanticCacheEngine:
                 input_language=resolution.input_language,
                 language_policy=resolution.language_policy,
                 cache_source="Semantic Cache",
-                supported=True,
                 matched_queries_snapshot=matched_snapshot,
                 rejected_candidates_snapshot=rejected_candidates,
                 validation_explanation=best_validation.reason,
             )
-
-        top_related = sorted(miss_candidates_map.values(), key=lambda item: item[0], reverse=True)[:1]
-        related_payload = [
-            {
-                "entry_id": str(getattr(c, "id", "")),
-                "query": getattr(c, "query", ""),
-                "similarity_score": round(float(s), 4),
-                "detected_language": getattr(c, "detected_language", eff_lang),
-                "model": getattr(c, "model", model),
-                "hit_count": int(getattr(c, "hit_count", 0) or 0),
-            }
-            for s, c in top_related
-        ]
 
         miss_explanation = (
             rejected_candidates[0]["reason"]
@@ -531,7 +474,6 @@ class SemanticCacheEngine:
             hit=False,
             cache_type="miss",
             similarity_score=float(best_raw_similarity) if best_raw_similarity > 0 else None,
-            related_candidates=related_payload,
             lookup_latency_ms=lookup_latency,
             detected_language=resolution.input_language,
             requested_language=eff_lang,
@@ -539,7 +481,6 @@ class SemanticCacheEngine:
             input_language=resolution.input_language,
             language_policy=resolution.language_policy,
             cache_source="LLM API",
-            supported=True,
             matched_queries_snapshot=[],
             rejected_candidates_snapshot=rejected_candidates,
             validation_explanation=miss_explanation,
@@ -658,14 +599,9 @@ class SemanticCacheEngine:
         similarity_score: float | None = None,
         detected_language: str | None = None,
         requested_language: str | None = None,
-        variant_reused: bool = False,
-        translation_performed: bool = False,
-        translation_failed: bool = False,
-        translation_latency_ms: int = 0,
         matched_entry_id: uuid.UUID | None = None,
         matched_query: str | None = None,
         response_preview: str | None = None,
-        related_candidates: list[dict[str, Any]] | None = None,
         current_query: str | None = None,
         matched_queries_snapshot: list[dict[str, Any]] | None = None,
         rejected_candidates_snapshot: list[dict[str, Any]] | None = None,
@@ -681,7 +617,7 @@ class SemanticCacheEngine:
             requested_language = requested_language or res.effective_response_language
 
         is_hit = cache_status in ("exact_hit", "semantic_hit")
-        no_llm = is_hit
+        no_llm = is_hit or (cache_status == "blocked" and output_tokens == 0)
         tokens_saved = (input_tokens + output_tokens) if is_hit else 0
         llm_latency_ms = 0 if no_llm else max(0, total_latency_ms - lookup_latency_ms)
         latency_saved_ms = max(0, 1800 - lookup_latency_ms) if is_hit else 0
@@ -701,16 +637,11 @@ class SemanticCacheEngine:
             matched_entry_id=matched_entry_id,
             matched_query=matched_query if is_hit else None,
             response_preview=effective_response_preview,
-            related_candidates=related_candidates if cache_status == "miss" else None,
             current_query=current_query or query,
             matched_queries_snapshot=matched_queries_snapshot if cache_status == "semantic_hit" else None,
             rejected_candidates_snapshot=rejected_candidates_snapshot if cache_status in ("semantic_hit", "miss") else None,
             returned_response_snapshot=returned_response_snapshot if cache_status == "semantic_hit" else None,
-            validation_explanation=validation_explanation if cache_status in ("semantic_hit", "miss") else None,
-            variant_reused=variant_reused,
-            translation_performed=translation_performed,
-            translation_failed=translation_failed,
-            translation_latency_ms=translation_latency_ms,
+            validation_explanation=validation_explanation if cache_status in ("semantic_hit", "miss", "blocked", "fetch") else None,
             provider=provider,
             model=model,
             input_tokens=input_tokens,

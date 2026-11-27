@@ -7,7 +7,6 @@ import { authService } from './service';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (token: string, user: User) => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<User | null>;
 }
@@ -35,8 +34,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void refreshUser();
   }, []);
 
-  const login = (_token: string, userData: User) => setUser(userData);
-
   const logout = async () => {
     try {
       await authService.logout();
@@ -47,7 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

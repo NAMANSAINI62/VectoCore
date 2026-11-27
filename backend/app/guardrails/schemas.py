@@ -37,14 +37,59 @@ class ScoreBand(str, Enum):
     UNAVAILABLE = "unavailable"
 
 
-class FailMode(str, Enum):
-    """Detector failure disposition when a detector times out, errors, or trips breaker."""
-
-    OPEN = "open"
-    CLOSED = "closed"
-
-
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+
+# Shared category classifiers used by both content_safety and decision_engine
+# (kept in schemas.py so sibling guardrail modules remain strictly isolated).
+_PRIVACY_PII_CATEGORIES = frozenset({
+    "pii",
+    "privacy",
+    "pii/privacy",
+    "personal_data",
+    "personal information",
+    "sensitive_data",
+    "private_information",
+    "s15",
+})
+
+_SELF_HARM_CATEGORIES = frozenset({
+    "self_harm",
+    "self-harm",
+    "suicide",
+    "suicide_or_self_harm",
+    "suicide and self harm",
+    "self harm",
+    "s11",
+})
+
+
+def normalize_category(cat: str) -> str:
+    return (cat or "").strip().lower().replace("_", " ")
+
+
+def is_privacy_only_categories(categories: list[str]) -> bool:
+    """Return True if categories are non-empty and every category is a privacy/PII category."""
+    if not categories:
+        return False
+    for raw in categories:
+        norm_space = normalize_category(raw)
+        if norm_space not in _PRIVACY_PII_CATEGORIES and norm_space.replace(" ", "_") not in _PRIVACY_PII_CATEGORIES:
+            return False
+    return True
+
+
+def has_self_harm_category(categories: list[str]) -> bool:
+    """Return True if any category corresponds to self-harm or suicide."""
+    for raw in categories:
+        norm_space = normalize_category(raw)
+        if (
+            norm_space in _SELF_HARM_CATEGORIES
+            or norm_space.replace(" ", "_") in _SELF_HARM_CATEGORIES
+            or "self harm" in norm_space
+            or "suicide" in norm_space
+        ):
+            return True
+    return False
 
 
 class LayerResult(BaseModel):

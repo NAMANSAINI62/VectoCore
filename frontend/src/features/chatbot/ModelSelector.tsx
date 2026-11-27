@@ -5,11 +5,9 @@ import {
   BookOpenCheck,
   Check,
   ChevronRight,
-  Cpu,
   Scale,
   Search,
   Sparkles,
-  Wand2,
   X,
   Zap,
 } from 'lucide-react';
@@ -35,8 +33,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   nvidia: 'NVIDIA',
 };
 
-type PaneKey = 'auto' | 'deep_research' | 'complex' | 'balanced' | 'fast';
-type TierKey = Exclude<PaneKey, 'auto'>;
+type TierKey = 'deep_research' | 'balanced' | 'fast';
+type PaneKey = TierKey;
 
 const MODEL_TIERS: ReadonlyArray<{
   key: TierKey;
@@ -44,8 +42,7 @@ const MODEL_TIERS: ReadonlyArray<{
   shortLabel: string;
   hint: string;
 }> = [
-  { key: 'deep_research', label: 'Deep Research', shortLabel: 'Deep Research', hint: 'Heavy synthesis & deep analysis' },
-  { key: 'complex', label: 'Complex Queries', shortLabel: 'Complex', hint: 'Architecture, debug & high-parameter models' },
+  { key: 'deep_research', label: 'Deep Research', shortLabel: 'Deep Research', hint: 'In-depth synthesis, architecture & heavy analysis' },
   { key: 'balanced', label: 'Balanced Queries', shortLabel: 'Balanced', hint: 'Code, comparisons & everyday chat' },
   { key: 'fast', label: 'Fast Queries', shortLabel: 'Fast', hint: 'Instant replies & low-latency models' },
 ];
@@ -55,39 +52,26 @@ export function formatProviderLabel(provider: string): string {
 }
 
 function getModelTier(m: Model): TierKey {
-  if (m.provider === 'gemini') {
-    const t = m.tier as TierKey | undefined;
-    if (t === 'deep_research' || t === 'complex' || t === 'balanced' || t === 'fast') {
-      return t;
-    }
-    return 'balanced';
-  }
-  const key = `${m.id} ${m.name}`.toLowerCase();
-  if (key.includes('120b') || key.includes('340b') || key.includes('ultra')) {
-    return 'complex';
-  }
-  if (key.includes('flash') || key.includes('bolt')) {
-    return 'fast';
+  if (m.tier === 'deep_research' || m.tier === 'balanced' || m.tier === 'fast') {
+    return m.tier;
   }
   return 'balanced';
 }
 
 function getProviderIcon(provider: string) {
   if (provider === 'groq') {
-    return <Zap className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400" />;
+    return <Zap className="h-3.5 w-3.5 text-amber-500" />;
   }
   if (provider === 'gemini') {
-    return <Sparkles className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" />;
+    return <Sparkles className="h-3.5 w-3.5 text-sky-500" />;
   }
   return <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" />;
 }
 
 function getPaneIcon(pane: PaneKey) {
-  if (pane === 'auto') return <Wand2 className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" />;
-  if (pane === 'deep_research') return <BookOpenCheck className="h-3.5 w-3.5 text-violet-500 dark:text-violet-400" />;
-  if (pane === 'complex') return <Cpu className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" />;
-  if (pane === 'balanced') return <Scale className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />;
-  return <Zap className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400" />;
+  if (pane === 'deep_research') return <BookOpenCheck className="h-3.5 w-3.5 text-violet-500" />;
+  if (pane === 'balanced') return <Scale className="h-3.5 w-3.5 text-emerald-500" />;
+  return <Zap className="h-3.5 w-3.5 text-amber-500" />;
 }
 
 export type ModelSelectorProps = {
@@ -103,7 +87,7 @@ export type ModelSelectorProps = {
 /**
  * Unified Two-Pane Frosted Glass Model Selector:
  * - Single translucent blurred container matching the top navigation bar
- * - Left rail: Smart Auto + 4 balanced query tiers (Deep Research, Complex, Balanced, Fast)
+ * - Left rail: 3 query tiers (Deep Research, Balanced, Fast)
  * - Right pane: Large, stationary, easy-to-click model cards across all providers
  */
 export function ModelSelector({
@@ -116,9 +100,8 @@ export function ModelSelector({
   onClose,
 }: ModelSelectorProps) {
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [activePane, setActivePane] = useState<PaneKey>('auto');
+  const [activePane, setActivePane] = useState<PaneKey>('balanced');
   const [highlightedIndex, setHighlightedIndex] = useState<number>(0);
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const hoverTimerRef = useRef<number | null>(null);
 
   const clearHoverTimer = () => {
@@ -145,26 +128,15 @@ export function ModelSelector({
     return map;
   }, [providers]);
 
-  const geminiConfigured = configuredMap.get('gemini') ?? false;
-
-  const geminiAutoModel = useMemo(
-    () => models.find((m) => m.provider === 'gemini' && m.id === 'gemini-auto') ?? null,
-    [models],
-  );
-
-  // Distribute all models (Gemini + other providers) across Deep Research, Complex, Balanced, and Fast
+  // Distribute all models (Gemini + other providers) across Deep Research, Balanced, and Fast
   const tierModels = useMemo(() => {
     const buckets: Record<TierKey, Model[]> = {
       deep_research: [],
-      complex: [],
       balanced: [],
       fast: [],
     };
     const seen = new Set<string>();
     for (const m of models) {
-      if (m.provider === 'gemini' && m.id === 'gemini-auto') {
-        continue;
-      }
       const dedupKey = `${m.provider}:${m.id}`;
       if (seen.has(dedupKey)) continue;
       seen.add(dedupKey);
@@ -188,24 +160,20 @@ export function ModelSelector({
     setSearchQuery('');
     setHighlightedIndex(0);
 
-    if (currentProvider === 'gemini' && currentModelId === 'gemini-auto') {
-      setActivePane('auto');
-      return;
-    }
     const current = models.find((m) => m.provider === currentProvider && m.id === currentModelId);
     if (current) {
       setActivePane(getModelTier(current));
     } else {
-      setActivePane(geminiAutoModel ? 'auto' : 'balanced');
+      setActivePane('balanced');
     }
     return () => clearHoverTimer();
-  }, [isOpen, currentProvider, currentModelId, models, geminiAutoModel]);
+  }, [isOpen, currentProvider, currentModelId, models]);
 
   const filteredSearchModels = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
     const list = models.filter((m) => {
-      const effectiveTier = m.id === 'gemini-auto' ? 'auto' : getModelTier(m);
+      const effectiveTier = getModelTier(m);
       return (
         m.name.toLowerCase().includes(q) ||
         m.id.toLowerCase().includes(q) ||
@@ -275,7 +243,6 @@ export function ModelSelector({
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--muted-foreground)]" />
             <input
-              ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => {
@@ -323,7 +290,7 @@ export function ModelSelector({
                 const isSelected = m.id === currentModelId && m.provider === currentProvider;
                 const isConfigured = configuredMap.get(m.provider) ?? false;
                 const isHighlighted = idx === highlightedIndex;
-                const tierLabel = m.id === 'gemini-auto' ? 'auto' : getModelTier(m).replace('_', ' ');
+                const tierLabel = getModelTier(m).replace('_', ' ');
                 return (
                   <button
                     type="button"
@@ -385,37 +352,6 @@ export function ModelSelector({
                 Tiers
               </div>
 
-              {geminiAutoModel && (
-                <button
-                  type="button"
-                  disabled={!geminiConfigured}
-                  onMouseEnter={() => schedulePane('auto')}
-                  onClick={() => {
-                    clearHoverTimer();
-                    setActivePane('auto');
-                    if (geminiConfigured) {
-                      onSelectModel('gemini', geminiAutoModel.id);
-                      onClose();
-                    }
-                  }}
-                  className={`flex h-[36px] w-full items-center justify-between rounded-xl px-2 text-left text-[11.5px] font-medium border transition-colors ${
-                    activePane === 'auto'
-                      ? 'border-[var(--accent)]/50 bg-[var(--accent)]/15 text-[var(--foreground)] font-semibold'
-                      : currentProvider === 'gemini' && currentModelId === 'gemini-auto'
-                      ? 'border-[var(--border)] bg-[var(--background)]/65 text-[var(--foreground)]'
-                      : 'border-transparent bg-transparent text-[var(--muted-foreground)] hover:bg-[var(--background)]/55 hover:text-[var(--foreground)]'
-                  } ${!geminiConfigured ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'}`}
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    {getPaneIcon('auto')}
-                    <span className="truncate">Gemini Auto</span>
-                  </span>
-                  {currentProvider === 'gemini' && currentModelId === 'gemini-auto' && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] shrink-0" />
-                  )}
-                </button>
-              )}
-
               {MODEL_TIERS.map((tier) => {
                 const list = tierModels[tier.key];
                 if (list.length === 0) return null;
@@ -460,51 +396,7 @@ export function ModelSelector({
               onMouseEnter={() => clearHoverTimer()}
               className="flex flex-col min-w-0 overflow-hidden"
             >
-              {activePane === 'auto' && geminiAutoModel ? (
-                <div className="flex flex-col h-full justify-between p-1">
-                  <div>
-                    <div className="text-[12.5px] font-semibold text-[var(--foreground)]">Gemini Auto</div>
-                    <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-                      Automatically picks the fastest or deepest Gemini model based on your query and healthy free-tier quota.
-                    </p>
-                    <button
-                      type="button"
-                      disabled={!geminiConfigured}
-                      onClick={() => {
-                        if (geminiConfigured) {
-                          onSelectModel('gemini', geminiAutoModel.id);
-                          onClose();
-                        }
-                      }}
-                      className={`mt-3 flex h-[44px] w-full items-center justify-between rounded-xl px-3 border transition-colors cursor-pointer ${
-                        currentProvider === 'gemini' && currentModelId === 'gemini-auto'
-                          ? 'border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--foreground)]'
-                          : 'border-[var(--border)] bg-[var(--background)]/60 text-[var(--foreground)] hover:bg-[var(--accent)]/10 hover:border-[var(--accent)]/50'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2.5 text-[12.5px] font-semibold">
-                        <Wand2 className="h-4 w-4 text-sky-500 dark:text-sky-400" />
-                        Use Smart Auto Router
-                      </span>
-                      {currentProvider === 'gemini' && currentModelId === 'gemini-auto' && (
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent)] text-white">
-                          <Check className="h-3 w-3 stroke-[3]" />
-                        </div>
-                      )}
-                    </button>
-                  </div>
-
-                  <div
-                    className="rounded-xl border px-2.5 py-2 text-[10.5px] text-[var(--muted-foreground)]"
-                    style={{
-                      background: 'color-mix(in srgb, var(--background) 50%, transparent)',
-                      borderColor: 'var(--border)',
-                    }}
-                  >
-                    Or hover/click a tier on the left to pick any model manually.
-                  </div>
-                </div>
-              ) : activeTierInfo ? (
+              {activeTierInfo ? (
                 <div className="flex flex-col h-full">
                   <div className="px-1 pb-2">
                     <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--foreground)]">

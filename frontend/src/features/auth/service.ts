@@ -1,5 +1,6 @@
 import { ApiClient } from '@/lib/apiClient';
 import type {
+  AuthMethods,
   LoginPayload,
   MessageResponse,
   RegisterPayload,
@@ -16,12 +17,19 @@ export const authService = {
     return ApiClient.post<TokenResponse>('/api/v1/auth/login', data);
   },
 
-  async refresh(): Promise<TokenResponse> {
-    return ApiClient.post<TokenResponse>('/api/v1/auth/refresh');
-  },
-
   async logout(): Promise<MessageResponse> {
     return ApiClient.post<MessageResponse>('/api/v1/auth/logout');
+  },
+
+  async logoutAll(): Promise<MessageResponse> {
+    return ApiClient.post<MessageResponse>('/api/v1/auth/logout-all', {});
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<MessageResponse> {
+    return ApiClient.post<MessageResponse>('/api/v1/auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
   },
 
   async getMe(): Promise<User> {
@@ -32,8 +40,8 @@ export const authService = {
     return ApiClient.patch<User>('/api/v1/users/me', { full_name: fullName });
   },
 
-  async getAuthMethods(): Promise<{ google_enabled: boolean; email_otp_enabled: boolean }> {
-    return ApiClient.get<{ google_enabled: boolean; email_otp_enabled: boolean }>('/api/v1/auth/methods');
+  async getAuthMethods(): Promise<AuthMethods> {
+    return ApiClient.get<AuthMethods>('/api/v1/auth/methods');
   },
 
   async requestEmailOtp(email: string): Promise<MessageResponse> {

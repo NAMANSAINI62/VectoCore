@@ -52,7 +52,7 @@ export function scorePassword(value: string): PasswordStrengthResult {
   return {
     score,
     label: 'Strong',
-    toneClass: 'text-emerald-600 dark:text-emerald-400',
+    toneClass: 'text-emerald-600',
     barColor: '#10b981',
   };
 }

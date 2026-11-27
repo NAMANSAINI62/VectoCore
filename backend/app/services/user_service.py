@@ -12,10 +12,6 @@ class UserService:
         self.db = db
         self.user_repo = UserRepository(db)
 
-    async def get_profile(self, user: User) -> User:
-        """Return user profile entity."""
-        return user
-
     async def update_profile(self, user: User, full_name: str | None = None) -> User:
         """Update authenticated user profile fields."""
         return await self.user_repo.update_profile(user=user, full_name=full_name)

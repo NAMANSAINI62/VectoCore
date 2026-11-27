@@ -69,14 +69,6 @@ class EmbeddingService:
         """Non-blocking async wrapper so embedding HTTP calls never freeze the FastAPI event loop."""
         return await asyncio.to_thread(self.embed_query, query)
 
-    def embed_batch(self, queries: list[str]) -> list[list[float]]:
-        """Embed a batch of queries."""
-        cleaned = [q.strip() for q in queries if q.strip()]
-        if not cleaned:
-            return []
-        client = self._ensure_client()
-        return [[float(x) for x in v] for v in client.embed_documents(cleaned)]
-
 
 @lru_cache
 def get_embedding_service() -> EmbeddingService:

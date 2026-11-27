@@ -226,19 +226,14 @@ flowchart TD
 
 ## 8. MCP & tool-call firewall
 
-Defined in [`backend/app/guardrails/tools.py`](backend/app/guardrails/tools.py) and [`backend/app/mcp/`](backend/app/mcp/client_manager.py) (see [`docs/MCP.md`](docs/MCP.md)). All configured models can access MCP and function tools under the rule: **the model proposes, the backend decides.**
+Defined in [`backend/app/guardrails/tools.py`](backend/app/guardrails/tools.py) and [`backend/app/mcp/`](backend/app/mcp/client_manager.py) (see [`docs/MCP.md`](docs/MCP.md)). All configured models access strictly separated read-only MCP servers under the rule: **the model proposes, the backend decides.**
 
 | Tool | Type | Protection |
 |---|---|---|
-| `fetch__get_page(url)` | MCP (`stdio`) | Only `http` and `https`, DNS + private/loopback/link-local/IPv6 SSRF blocklist on every redirect (max 3), 10 s timeout, 1 MB cap, HTML stripped (`beautifulsoup4`), output scanned for injection & secrets, `300` s TTL cache. Automatically falls back to `search__web_search` on fetch failure. |
-| `search__web_search(query)` | MCP (`stdio`) | Tavily web search with minimal child env (`TAVILY_API_KEY` loaded from `.env`), advanced news-recency filtering (`days=2`) for time-sensitive/Hinglish queries, top 3 results (`Result #1` → `#2` → `#3` grounding), injection-scanned snippets, `900` s TTL cache to save free-tier credits. |
-| `get_current_time(timezone)` | Function tool | Timezone restricted to a fixed allowlist (`ALLOWED_TIMEZONES`). |
-| `search_my_conversations(query, limit)` | Function tool | Read-only, always scoped to the authenticated user's `owner_id` (never taken from the model). |
-| `fetch_url(url)` | Function tool | Same SSRF/redirect/size/injection firewall as `fetch__get_page`, `3600` s TTL cache. |
+| `fetch__get_page(url)` | MCP (`stdio`) | Only `http` and `https`, DNS + private/loopback/link-local/IPv6 SSRF blocklist on every redirect (max 5), 10 s timeout, clean 2 MB stream cap, main-content HTML extraction (`<main>/<article>` + meta description, `html.unescape`), UTF-8 JSON, injection & secret scanned, `300` s TTL cache. Strictly separated from web search (no silent fallback on failure). |
+| `search__web_search(query)` | MCP (`stdio`) | Tavily web search with minimal child env (`TAVILY_API_KEY` loaded from `.env`), news-recency filtering with general fallback, multilingual triggers (EN/Hindi/Hinglish/ES/FR/DE), top 3 results (`Result #1` -> `#2` -> `#3` grounding), UTF-8 JSON, injection & secret scanned, `900` s TTL cache to save free-tier credits. |
 
-**Global rules:** deny by default, strict Pydantic schemas that reject unknown fields (`extra="forbid"`), at most 3 tool calls per request, tool output capped at 2,000 characters and treated as untrusted data, and MCP web tools (`fetch__get_page`, `search__web_search`) enabled across all configured models.
-
-> **Status note:** the firewall and MCP web tools are implemented and unit-tested. Live web/URL prompts automatically bypass the cache (`Live MCP Web Tools`) and refusal responses are never cached.
+**Global rules:** deny by default, strict Pydantic schemas rejecting unknown fields (`extra="forbid"`), at most 3 tool calls per request, tool output capped at 4,000 characters and wrapped in `<untrusted_tool_output>` (including TTL cache hits), and live MCP queries logged cleanly with **`FETCH`** telemetry status (never served from or written to semantic cache).
 
 ---
 
@@ -248,12 +243,12 @@ Implemented in [`backend/app/guardrails/rate_limiter.py`](backend/app/guardrails
 
 | Control | Default | Setting |
 |---|---|---|
-| **Requests per minute per user** | `10` (set to `5` in the sample config) | `RATE_LIMIT_USER_RPM` |
-| **Requests per minute per IP** | `60` (set to `5` in the sample config) | `RATE_LIMIT_IP_RPM` |
+| **Requests per minute per user** | `10` | `RATE_LIMIT_USER_RPM` |
+| **Requests per minute per IP** | `60` | `RATE_LIMIT_IP_RPM` |
 | **Concurrent streams per user** | `2` | `RATE_LIMIT_USER_CONCURRENT_STREAMS` |
-| **Auth endpoints** (`/login`, `/register`, `/forgot-password`, `/reset-password`) | `5` req / min per IP | `RedisRateLimiter.check_endpoint_limit` |
-| **Groq Orpheus TTS** (`/chat/tts`) | `5` req / min per user | `RedisRateLimiter.check_endpoint_limit` |
-| **Groq Whisper STT** (`/chat/transcribe`) | `15` req / min per user | `RedisRateLimiter.check_endpoint_limit` |
+| **Auth endpoints** (`/login`, `/register`, `/otp/*`, `/password-otp/*`) | `5` req / min per IP | `RedisRateLimiter.check_endpoint_limit` |
+| **Edge Neural TTS** (`/chat/tts`) | `30` req / min per user | `RedisRateLimiter.check_endpoint_limit` |
+| **Groq Whisper STT & Voice Polish** (`/chat/transcribe`, `/chat/voice-polish`) | `15–30` req / min per user | `RedisRateLimiter.check_endpoint_limit` |
 | **Abuse throttle** | Repeated limit hits trigger a temporary block | automatic |
 | **Redis outage behavior** | Fail open with a logged warning | `RATE_LIMIT_FAIL_OPEN` |
 
@@ -283,11 +278,11 @@ All workspace pages share a single 3-second `GlobalAutoSync` loop (pausing durin
 
 | Layer | Technologies |
 |---|---|
-| **Frontend** | Next.js 15 (Turbopack), React 19, TypeScript, Redux Toolkit (RTK Query + 3s `GlobalAutoSync`), `@microsoft/fetch-event-source`, Tailwind CSS, Recharts, `react-markdown`, Lucide icons |
+| **Frontend** | Next.js 15 (Turbopack), React 19, TypeScript, Redux Toolkit (RTK Query + 15s `GlobalAutoSync`), `@microsoft/fetch-event-source`, Tailwind CSS, Recharts, `react-markdown`, Lucide icons |
 | **Backend** | Python 3.12, FastAPI (with `BackgroundTasks`), Uvicorn, Pydantic v2, async SQLAlchemy (`asyncpg`), Alembic |
 | **Auth & Email** | JWT (HS256 `HttpOnly` cookies + rotating refresh-token sessions), Google OAuth 2.0 (stateless HMAC-signed `state` + `tokeninfo`), Gmail SMTP (`smtplib` STARTTLS) for 6-digit HMAC-hashed Email OTP & OTP Password Reset |
 | **Cache & Data** | Redis (exact cache, rate limits, distributed locks), PostgreSQL with `pgvector` HNSW (semantic cache, telemetry, chat history, `auth_otps`), `tiktoken` token counting |
-| **AI, Audio & MCP** | LangChain, LangGraph, Gemini, Groq (`whisper-large-v3-turbo` STT, `canopylabs/orpheus-v1-english` TTS), NVIDIA NIM, Cohere, OpenRouter, NVIDIA embeddings (2048-dim), Model Context Protocol (`mcp` Python SDK over `stdio`), Tavily Search API, `httpx`, `beautifulsoup4` |
+| **AI, Audio & MCP** | LangChain, LangGraph, Gemini, Groq (`whisper-large-v3-turbo` STT), Edge TTS (`edge-tts` neural multilingual TTS), NVIDIA NIM, Cohere, OpenRouter, NVIDIA embeddings (2048-dim), Model Context Protocol (`mcp` Python SDK over `stdio`), Tavily Search API, `httpx` |
 | **Guardrails** | NeMo Guardrails (`self check input`), Microsoft Presidio, spaCy `en_core_web_sm`, `detect-secrets`, `pybreaker`, `lingua` for language detection |
 
 ---
@@ -388,13 +383,13 @@ VectoCore/
 │       ├── llm/
 │       │   └── registry.py                   # providers, models, tool-capability map
 │       ├── models/                           # SQLAlchemy models
-│       │   ├── user.py, auth_otp.py, user_session.py, password_reset.py
+│       │   ├── user.py, auth_otp.py, user_session.py
 │       │   ├── chat.py                       # conversations and messages
 │       │   └── cache.py                      # cache entries, telemetry, settings
-│       ├── repositories/                     # user_repository, session_repository, reset_token_repo
+│       ├── repositories/                     # user_repository, session_repository
 │       ├── schemas/                          # request and response models
 │       └── services/
-│           ├── auth_service.py, email_service.py, reset_service.py, user_service.py
+│           ├── auth_service.py, email_service.py, user_service.py
 │           ├── cache_engine.py               # two-tier cache, stampede lock
 │           ├── embedding_service.py          # embedding model client
 │           ├── intent_service.py             # semantic-hit compatibility checks
@@ -594,9 +589,9 @@ Base path: `/api/v1`. Interactive docs are at `http://127.0.0.1:9417/docs`.
 
 | Area | Endpoint | Purpose |
 |---|---|---|
-| **Auth** | `POST /auth/register`, `/login`, `/refresh`, `/logout`, `/logout-all`, `/change-password`, `/otp/request`, `/otp/verify`, `/password-otp/request`, `/password-otp/reset`, `/forgot-password`, `/reset-password`; `GET /auth/google/login`, `/google/callback`, `/methods`, `/me` | Account, OAuth, Email OTP, password change/reset (OTP + token), and single/all-session management |
-| **Users** | `GET /users/me`, `PATCH /users/me` | Profile |
-| **Chat** | `POST /chat/completions`, `POST /chat/transcribe`, `POST /chat/voice-polish`, `POST /chat/tts` | Streaming SSE chat, Groq Whisper speech-to-text, Wispr Flow-style Hinglish voice polish, and binary `audio/mpeg` / `audio/wav` TTS (Edge Neural TTS `Emma` primary, Groq Orpheus `diana` + Gemini TTS `Kore` fallback) |
+| **Auth** | `POST /auth/register`, `/login`, `/refresh`, `/logout`, `/logout-all`, `/change-password`, `/otp/request`, `/otp/verify`, `/password-otp/request`, `/password-otp/reset`; `GET /auth/google/login`, `/google/callback`, `/methods`, `/me` | Account, Google OAuth, Email OTP sign-in & password reset, and single/all-session management |
+| **Users** | `PATCH /users/me` | Update authenticated user profile |
+| **Chat** | `POST /chat/completions`, `POST /chat/transcribe`, `POST /chat/voice-polish`, `POST /chat/tts` | Streaming SSE chat, Groq Whisper speech-to-text, Hinglish voice polish, and unlimited Edge Neural TTS (`en-US-EmmaMultilingualNeural`, with browser Web Speech fallback) |
 | **Conversations** | `GET/POST /conversations`, `GET/PATCH/DELETE /conversations/{id}` | History, ownership enforced |
 | **Models** | `GET /providers`, `GET /models` | Configured providers and models |
 | **Cache** | `GET /cache/entries`, `DELETE /cache/entries`, `DELETE /cache/entries/{id}` | Browse, clear all user entries, or remove a single cache entry |
@@ -625,7 +620,7 @@ cd backend
 pytest --ignore=tests/test_chatbot_cache.py --ignore=tests/test_semantic_cache_engine.py
 ```
 
-The two ignored files call the live NVIDIA embedding API, so they can fail when that service is overloaded. In the non-ignored suite (133 tests), 126 tests pass out of the box (cache API, language/Redis, match insights, short-term memory, MCP/web tools, rate limiter, and tool firewall); 7 pre-existing guardrails tests fail when `backend/.env` overrides `GUARDRAILS_PII_MODE=enforce` (instead of `shadow`) or assert legacy Aadhaar-redaction behavior (the current policy blocks Aadhaar and phone numbers instead of redacting them).
+The two ignored files call the live NVIDIA embedding API, so they can fail when that service is overloaded. The offline test suite covers cache API, language/Redis, match insights, MCP/web tools, rate limiter, and tool firewall; when `backend/.env` enables `GUARDRAILS_PII_MODE=enforce` (and Aadhaar blocking), legacy shadow/redaction assertions fail as expected.
 
 **Frontend:**
 

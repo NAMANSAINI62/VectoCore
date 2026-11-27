@@ -25,7 +25,6 @@ from app.chatbot.graph import (
 from app.services.cache_engine import (
     SemanticCacheEngine,
     compute_exact_cache_key,
-    is_context_dependent_followup,
     normalize_query_for_cache,
 )
 from app.services.language_service import (
@@ -257,7 +256,6 @@ async def test_semantic_cache_cross_lingual_default_english_hit_without_translat
     assert res.cache_type == "semantic_hit"
     assert res.cache_source == "Semantic Cache"
     assert res.effective_response_language == "English"
-    assert res.translation_performed is False
     assert candidate.hit_count == 1
 
 
@@ -509,34 +507,29 @@ async def test_indirect_language_override_directives():
         assert r_fact.language_policy == "default"
 
 
-def test_is_context_dependent_followup():
-    assert is_context_dependent_followup("Explain step 2") is True
-    assert is_context_dependent_followup("Give an example of that") is True
-    assert is_context_dependent_followup("Iska example do") is True
-    assert is_context_dependent_followup("Why?") is True
-    assert is_context_dependent_followup("What is PostgreSQL MVCC?") is False
-    assert is_context_dependent_followup("How do I configure Redis persistence?") is False
-
-
 @pytest.mark.asyncio
-async def test_check_cache_bypasses_context_dependent_followup_when_history_exists():
+async def test_check_cache_marks_live_mcp_query_as_fetch():
     db = AsyncMock()
     db.bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
-    db.scalar = AsyncMock(return_value=uuid.uuid4())  # prior completed message exists
-    db.scalars = AsyncMock(return_value=SimpleNamespace(all=lambda: []))
+    events: list[dict] = []
 
-    with patch("app.chatbot.graph.get_stream_writer", return_value=lambda _evt: None), \
+    with patch("app.chatbot.graph.get_stream_writer", return_value=events.append), \
+         patch("app.mcp.config.get_mcp_settings") as mock_cfg, \
          patch("app.chatbot.graph.SemanticCacheEngine") as engine_cls:
+        mock_cfg.return_value.MCP_ENABLED = True
         out = await check_cache({
             "db": db,
             "user_id": uuid.uuid4(),
             "conversation_id": uuid.uuid4(),
             "user_message_id": uuid.uuid4(),
-            "message": "Iska example do",
-            "provider": "openrouter",
-            "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "message": "Fetch https://redis.io/about/ and summarize it",
+            "provider": "gemini",
+            "model": "gemini-3.5-flash-lite",
         })
 
     assert out["is_cached"] is False
     assert out["skip_cache"] is True
+    assert "fetch__get_page" in out["fetch_reason"]
+    telemetry_events = [e for e in events if e.get("event") == "cache.telemetry"]
+    assert telemetry_events and telemetry_events[-1]["data"]["cache_type"] == "fetch"
     engine_cls.assert_not_called()

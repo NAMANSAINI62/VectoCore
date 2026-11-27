@@ -15,9 +15,10 @@ import {
   Trash2,
   UserRound,
 } from 'lucide-react';
-import { ApiClient } from '@/lib/apiClient';
 import { getSavedDefaultModel, saveDefaultModel } from '@/lib/preferences';
 import { useAuth } from '@/features/auth/provider';
+import { authService } from '@/features/auth/service';
+import type { AuthMethods } from '@/features/auth/types';
 import { formatProviderLabel } from '@/features/chatbot/ModelSelector';
 import { THEME_OPTIONS, useTheme } from '@/components/ThemeProvider';
 import {
@@ -26,11 +27,6 @@ import {
   useGetModelsQuery,
   useUpdateCacheSettingsMutation,
 } from '@/store/cacheApi';
-
-type AuthMethods = {
-  google_enabled: boolean;
-  email_otp_enabled: boolean;
-};
 
 const TTL_PRESETS = [
   { id: '1d', label: '1 Day', hours: 24, hint: '24 hours' },
@@ -53,9 +49,7 @@ export default function SettingsPage() {
   }, [user?.full_name]);
 
   useEffect(() => {
-    void ApiClient.get<AuthMethods>('/api/v1/auth/methods')
-      .then(setAuthMethods)
-      .catch(() => {});
+    void authService.getAuthMethods().then(setAuthMethods).catch(() => {});
   }, []);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -68,7 +62,7 @@ export default function SettingsPage() {
     setProfileSaving(true);
     setProfileMsg(null);
     try {
-      await ApiClient.patch('/api/v1/users/me', { full_name: cleaned });
+      await authService.updateProfile(cleaned);
       await refreshUser();
       setProfileMsg('Profile updated.');
     } catch (err) {
@@ -102,10 +96,7 @@ export default function SettingsPage() {
     setPwSaving(true);
     setPwMsg(null);
     try {
-      const res = await ApiClient.post<{ message: string }>('/api/v1/auth/change-password', {
-        current_password: currentPassword,
-        new_password: newPassword,
-      });
+      const res = await authService.changePassword(currentPassword, newPassword);
       setCurrentPassword('');
       setNewPassword('');
       setPwMsg(res.message);
@@ -121,9 +112,7 @@ export default function SettingsPage() {
     setOtpBusy(true);
     setOtpMsg(null);
     try {
-      const res = await ApiClient.post<{ message: string }>('/api/v1/auth/password-otp/request', {
-        email: user.email,
-      });
+      const res = await authService.requestPasswordResetOtp(user.email);
       setOtpRequested(true);
       setOtpMsg(res.message || 'Verification code sent to your email.');
     } catch (err) {
@@ -142,11 +131,7 @@ export default function SettingsPage() {
     setOtpBusy(true);
     setOtpMsg(null);
     try {
-      const res = await ApiClient.post<{ message: string }>('/api/v1/auth/password-otp/reset', {
-        email: user.email,
-        code: otpCode,
-        new_password: otpNewPassword,
-      });
+      const res = await authService.resetPasswordWithOtp(user.email, otpCode, otpNewPassword);
       setOtpCode('');
       setOtpNewPassword('');
       setOtpRequested(false);
@@ -161,7 +146,7 @@ export default function SettingsPage() {
   const handleLogoutAllSessions = async () => {
     setLogoutAllBusy(true);
     try {
-      await ApiClient.post('/api/v1/auth/logout-all', {});
+      await authService.logoutAll();
     } finally {
       window.location.href = '/login';
     }
@@ -218,7 +203,7 @@ export default function SettingsPage() {
     }
   };
 
-  // 4. Default Model + Read-Aloud Voice + Live 60-Char Preview
+  // 4. Default Startup Model
   const { data: models = [] } = useGetModelsQuery();
   const [selectedModelKey, setSelectedModelKey] = useState<string>('');
   const [modelMsg, setModelMsg] = useState<string | null>(null);

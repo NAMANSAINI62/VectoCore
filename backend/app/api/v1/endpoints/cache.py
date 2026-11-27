@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import case, delete, func, select
@@ -60,15 +59,6 @@ class CacheEntriesPaginatedResponse(BaseModel):
     total_pages: int
 
 
-class RelatedCacheMatchItem(BaseModel):
-    entry_id: str
-    query: str
-    similarity_score: float
-    detected_language: str = "English"
-    model: str = ""
-    hit_count: int = 0
-
-
 class SemanticMatchCandidateItem(BaseModel):
     rank: Optional[int] = None
     cache_entry_id: Optional[str] = None
@@ -117,11 +107,6 @@ class TelemetryItemResponse(BaseModel):
     matched_entry_id: Optional[uuid.UUID] = None
     matched_query: Optional[str] = None
     response_preview: Optional[str] = None
-    related_candidates: Optional[list[RelatedCacheMatchItem]] = None
-    variant_reused: bool = False
-    translation_performed: bool = False
-    translation_failed: bool = False
-    translation_latency_ms: int = 0
     error_type: Optional[str] = None
     error_message: Optional[str] = None
     semantic_match_insights: Optional[SemanticMatchInsightsResponse] = None
@@ -176,18 +161,14 @@ class CacheStatsResponse(BaseModel):
     total_requests: int
     cache_hits: int
     cache_misses: int
+    blocked_requests: int = 0
+    fetch_requests: int = 0
     hit_rate_pct: float
     exact_hits: int
     semantic_hits: int
     exact_hit_rate_pct: float = 0.0
     semantic_hit_rate_pct: float = 0.0
     llm_calls_avoided: int = 0
-    variant_reused_count: int = 0
-    translation_operations: int = 0
-    translation_failures: int = 0
-    avg_translation_latency_ms: float = 0.0
-    answer_llm_calls: int = 0
-    translation_llm_calls: int = 0
     real_tokens_saved: int
     input_tokens_saved: int = 0
     output_tokens_saved: int = 0
@@ -226,24 +207,43 @@ class CacheSettingsResponse(BaseModel):
     default_ttl_hours: int
 
 
-def _compute_percentiles(values: list[int | float]) -> tuple[float, float, float]:
-    """Compute P50, P95, and P99 latency percentiles using NumPy."""
-    if not values:
-        return (0.0, 0.0, 0.0)
-    arr = np.asarray(values, dtype=float)
-    p50, p95, p99 = np.percentile(arr, [50, 95, 99])
-    return (round(float(p50), 1), round(float(p95), 1), round(float(p99), 1))
+async def _get_effective_similarity_threshold(db: AsyncSession, user_id: uuid.UUID) -> float:
+    """Load the user's configured semantic similarity threshold, falling back to default."""
+    user_settings = await db.scalar(
+        select(CacheSettings).where(CacheSettings.owner_id == user_id)
+    )
+    return (
+        float(user_settings.similarity_threshold)
+        if user_settings is not None
+        else DEFAULT_SIMILARITY_THRESHOLD
+    )
 
 
 def _build_telemetry_item(t: CacheTelemetry) -> tuple[TelemetryItemResponse, bool]:
     is_hit = t.cache_status in ("exact_hit", "semantic_hit")
-    llm_ms = int(
-        getattr(t, "llm_latency_ms", 0)
-        or (0 if is_hit else max(0, (t.total_latency_ms or 0) - (t.cache_lookup_latency_ms or 0)))
+    is_input_blocked = t.cache_status == "blocked" and (t.output_tokens or 0) == 0
+    llm_ms = (
+        0
+        if (is_hit or is_input_blocked)
+        else int(
+            getattr(t, "llm_latency_ms", 0)
+            or max(0, (t.total_latency_ms or 0) - (t.cache_lookup_latency_ms or 0))
+        )
     )
     item_resp = TelemetryItemResponse.model_validate(t)
     item_resp.request_id = f"req-{str(t.id)[:8]}"
     item_resp.llm_latency_ms = llm_ms
+    if t.cache_status == "blocked":
+        item_resp.error_type = item_resp.error_type or "guardrails_blocked"
+        item_resp.error_message = (
+            getattr(t, "validation_explanation", None)
+            or item_resp.error_message
+            or item_resp.response_preview
+        )
+    elif t.cache_status == "fetch":
+        fetch_expl = getattr(t, "validation_explanation", None)
+        item_resp.error_type = "live_mcp_tool"
+        item_resp.error_message = fetch_expl or "Live MCP tool fetched real-time web data."
     if item_resp.response_preview and (
         "missinggreenlet" in item_resp.response_preview.lower()
         or "greenlet_spawn" in item_resp.response_preview.lower()
@@ -475,14 +475,7 @@ async def get_cache_stats(
         .limit(activity_limit)
     )).all())
 
-    user_settings = await db.scalar(
-        select(CacheSettings).where(CacheSettings.owner_id == user.id)
-    )
-    eff_threshold = (
-        float(user_settings.similarity_threshold)
-        if user_settings is not None
-        else DEFAULT_SIMILARITY_THRESHOLD
-    )
+    eff_threshold = await _get_effective_similarity_threshold(db, user.id)
 
     is_hit_cond = CacheTelemetry.cache_status.in_(("exact_hit", "semantic_hit"))
     is_miss_cond = CacheTelemetry.cache_status == "miss"
@@ -491,10 +484,6 @@ async def get_cache_stats(
 
     hit_lat_expr = case((is_hit_cond, CacheTelemetry.cache_lookup_latency_ms), else_=None)
     miss_lat_expr = case((is_miss_cond, CacheTelemetry.total_latency_ms), else_=None)
-    trans_lat_expr = case(
-        (CacheTelemetry.translation_performed.is_(True) & (CacheTelemetry.translation_latency_ms > 0), CacheTelemetry.translation_latency_ms),
-        else_=None,
-    )
 
     summary_row = (
         await db.execute(
@@ -503,16 +492,13 @@ async def get_cache_stats(
                 func.count().filter(CacheTelemetry.cache_status == "exact_hit").label("exact_hits"),
                 func.count().filter(CacheTelemetry.cache_status == "semantic_hit").label("semantic_hits"),
                 func.count().filter(is_miss_cond).label("miss_count"),
-                func.count().filter(CacheTelemetry.variant_reused.is_(True)).label("variant_reused_count"),
-                func.count().filter(CacheTelemetry.translation_performed.is_(True)).label("translation_operations"),
-                func.count().filter(CacheTelemetry.translation_failed.is_(True)).label("translation_failures"),
-                func.avg(trans_lat_expr).label("avg_translation_latency_ms"),
-                func.count().filter(is_miss_cond).label("answer_llm_calls"),
+                func.count().filter(CacheTelemetry.cache_status == "blocked").label("blocked_count"),
+                func.count().filter(CacheTelemetry.cache_status == "fetch").label("fetch_count"),
                 func.coalesce(func.sum(func.coalesce(CacheTelemetry.tokens_saved, 0)), 0).label("real_tokens_saved"),
                 func.coalesce(func.sum(func.coalesce(CacheTelemetry.input_tokens, 0)).filter(is_hit_cond), 0).label("input_tokens_saved"),
                 func.coalesce(func.sum(func.coalesce(CacheTelemetry.output_tokens, 0)).filter(is_hit_cond), 0).label("output_tokens_saved"),
-                func.coalesce(func.sum(func.coalesce(CacheTelemetry.input_tokens, 0)), 0).label("total_input_tokens"),
-                func.coalesce(func.sum(func.coalesce(CacheTelemetry.output_tokens, 0)), 0).label("total_output_tokens"),
+                func.coalesce(func.sum(func.coalesce(CacheTelemetry.input_tokens, 0)).filter(~is_hit_cond), 0).label("total_input_tokens"),
+                func.coalesce(func.sum(func.coalesce(CacheTelemetry.output_tokens, 0)).filter(~is_hit_cond), 0).label("total_output_tokens"),
                 func.avg(hit_lat_expr).label("avg_hit_latency"),
                 func.avg(case((CacheTelemetry.cache_status == "exact_hit", CacheTelemetry.cache_lookup_latency_ms), else_=None)).label("avg_exact_hit_latency"),
                 func.avg(case((CacheTelemetry.cache_status == "semantic_hit", CacheTelemetry.cache_lookup_latency_ms), else_=None)).label("avg_semantic_hit_latency"),
@@ -537,16 +523,12 @@ async def get_cache_stats(
     semantic_hits = int(summary_row.semantic_hits or 0)
     cache_hits = exact_hits + semantic_hits
     cache_misses = int(summary_row.miss_count or 0)
+    blocked_requests = int(summary_row.blocked_count or 0)
+    fetch_requests = int(summary_row.fetch_count or 0)
 
     hit_rate_pct = round((cache_hits / total_requests * 100.0), 1) if total_requests > 0 else 0.0
     exact_hit_rate_pct = round((exact_hits / total_requests * 100.0), 1) if total_requests > 0 else 0.0
     semantic_hit_rate_pct = round((semantic_hits / total_requests * 100.0), 1) if total_requests > 0 else 0.0
-    variant_reused_count = int(summary_row.variant_reused_count or 0)
-    translation_operations = int(summary_row.translation_operations or 0)
-    translation_failures = int(summary_row.translation_failures or 0)
-    avg_translation_latency_ms = round(float(summary_row.avg_translation_latency_ms), 1) if summary_row.avg_translation_latency_ms is not None else 0.0
-    answer_llm_calls = int(summary_row.answer_llm_calls or 0)
-    translation_llm_calls = translation_operations
 
     real_tokens_saved = int(summary_row.real_tokens_saved or 0)
     input_tokens_saved = int(summary_row.input_tokens_saved or 0)
@@ -576,8 +558,8 @@ async def get_cache_stats(
                 func.count().label("requests"),
                 func.count().filter(is_hit_cond).label("hits"),
                 func.count().filter(is_miss_cond).label("misses"),
-                func.coalesce(func.sum(func.coalesce(CacheTelemetry.input_tokens, 0)), 0).label("in_tok"),
-                func.coalesce(func.sum(func.coalesce(CacheTelemetry.output_tokens, 0)), 0).label("out_tok"),
+                func.coalesce(func.sum(func.coalesce(CacheTelemetry.input_tokens, 0)).filter(~is_hit_cond), 0).label("in_tok"),
+                func.coalesce(func.sum(func.coalesce(CacheTelemetry.output_tokens, 0)).filter(~is_hit_cond), 0).label("out_tok"),
                 func.coalesce(func.sum(func.coalesce(CacheTelemetry.tokens_saved, 0)), 0).label("saved"),
                 func.avg(CacheTelemetry.total_latency_ms).label("avg_latency_ms"),
             )
@@ -625,8 +607,8 @@ async def get_cache_stats(
                 func.coalesce(func.sum(func.coalesce(CacheTelemetry.tokens_saved, 0)), 0).label("tokens_saved"),
                 func.coalesce(func.sum(func.coalesce(CacheTelemetry.input_tokens, 0)).filter(is_hit_cond), 0).label("in_tokens_saved"),
                 func.coalesce(func.sum(func.coalesce(CacheTelemetry.output_tokens, 0)).filter(is_hit_cond), 0).label("out_tokens_saved"),
-                func.coalesce(func.sum(func.coalesce(CacheTelemetry.input_tokens, 0)), 0).label("total_in_tokens"),
-                func.coalesce(func.sum(func.coalesce(CacheTelemetry.output_tokens, 0)), 0).label("total_out_tokens"),
+                func.coalesce(func.sum(func.coalesce(CacheTelemetry.input_tokens, 0)).filter(~is_hit_cond), 0).label("total_in_tokens"),
+                func.coalesce(func.sum(func.coalesce(CacheTelemetry.output_tokens, 0)).filter(~is_hit_cond), 0).label("total_out_tokens"),
                 func.coalesce(func.sum(CacheTelemetry.total_latency_ms), 0).label("sum_latency"),
                 func.count(CacheTelemetry.total_latency_ms).label("cnt_latency"),
             )
@@ -740,9 +722,7 @@ async def get_cache_stats(
     recent_activity: list[TelemetryItemResponse] = []
     for t in recent_activity_rows:
         item_resp, is_hit = _build_telemetry_item(t)
-        if is_hit:
-            item_resp.related_candidates = None
-        else:
+        if not is_hit:
             item_resp.matched_query = None
 
         item_resp.semantic_match_insights = _build_semantic_match_insights(
@@ -761,18 +741,14 @@ async def get_cache_stats(
         total_requests=total_requests,
         cache_hits=cache_hits,
         cache_misses=cache_misses,
+        blocked_requests=blocked_requests,
+        fetch_requests=fetch_requests,
         hit_rate_pct=hit_rate_pct,
         exact_hits=exact_hits,
         semantic_hits=semantic_hits,
         exact_hit_rate_pct=exact_hit_rate_pct,
         semantic_hit_rate_pct=semantic_hit_rate_pct,
         llm_calls_avoided=cache_hits,
-        variant_reused_count=variant_reused_count,
-        translation_operations=translation_operations,
-        translation_failures=translation_failures,
-        avg_translation_latency_ms=avg_translation_latency_ms,
-        answer_llm_calls=answer_llm_calls,
-        translation_llm_calls=translation_llm_calls,
         real_tokens_saved=real_tokens_saved,
         input_tokens_saved=input_tokens_saved,
         output_tokens_saved=output_tokens_saved,
@@ -863,20 +839,11 @@ async def inspect_telemetry_item(
     if t is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Telemetry record not found")
 
-    user_settings = await db.scalar(
-        select(CacheSettings).where(CacheSettings.owner_id == user.id)
-    )
-    eff_threshold = (
-        float(user_settings.similarity_threshold)
-        if user_settings is not None
-        else DEFAULT_SIMILARITY_THRESHOLD
-    )
+    eff_threshold = await _get_effective_similarity_threshold(db, user.id)
 
     item_resp, is_hit = _build_telemetry_item(t)
 
-    now = datetime.now(timezone.utc)
     if is_hit:
-        item_resp.related_candidates = None
         if not item_resp.response_preview or not item_resp.matched_query:
             matched_entry: Optional[CacheEntry] = None
             if t.matched_entry_id:
@@ -1013,39 +980,8 @@ async def inspect_telemetry_item(
                             item_resp.matched_query = best_hist_q
                         else:
                             item_resp.matched_query = q_clean
-    elif t.cache_status == "miss":
-        item_resp.matched_query = None
-        if not item_resp.related_candidates and (t.query_preview or "").strip():
-            q_text = t.query_preview.strip()
-            q_vec = await EmbeddingService.get_instance().aembed_query(q_text)
-            scored = await query_similar_cache_entries(
-                db,
-                user.id,
-                q_vec,
-                now=now,
-                min_similarity=0.28,
-                detected_language=None,
-                limit=10,
-            )
-            filtered_scored = [
-                (s, e)
-                for s, e in scored
-                if e.query.strip().lower() != q_text.lower()
-            ]
-            item_resp.related_candidates = [
-                RelatedCacheMatchItem(
-                    entry_id=str(e.id),
-                    query=e.query,
-                    similarity_score=round(float(s), 4),
-                    detected_language=e.detected_language,
-                    model=e.model,
-                    hit_count=int(e.hit_count or 0),
-                )
-                for s, e in filtered_scored[:3]
-            ]
     else:
         item_resp.matched_query = None
-        item_resp.related_candidates = None
 
     item_resp.semantic_match_insights = _build_semantic_match_insights(
         t, item_resp, similarity_threshold=eff_threshold

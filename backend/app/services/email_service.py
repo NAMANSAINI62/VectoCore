@@ -70,10 +70,10 @@ async def send_otp_email(
     expire_minutes: int = 5,
     purpose: str = "sign-in",
 ) -> None:
-    """Send a 6-digit verification OTP email via configured SMTP."""
+    """Send a 6-digit verification OTP email via Brevo HTTPS API or SMTP."""
     if not is_smtp_configured():
         raise RuntimeError(
-            "Email OTP is not configured yet. Add SMTP_HOST, SMTP_USER, and SMTP_PASSWORD to backend/.env."
+            "Email OTP is not configured yet. Add BREVO_API_KEY (or SMTP_HOST, SMTP_USER, and SMTP_PASSWORD) to backend/.env."
         )
 
     is_reset = purpose == "password-reset"

@@ -16,9 +16,9 @@ from app.database.base import Base
 from app.models.user import User
 from app.models.auth_otp import AuthOtp
 from app.models.user_session import UserSession
-from app.models.password_reset import PasswordResetToken
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.cache import CacheEntry, CacheSettings, CacheTelemetry
+from app.guardrails.events import GuardrailEvent  # noqa: F401
 
 config = context.config
 

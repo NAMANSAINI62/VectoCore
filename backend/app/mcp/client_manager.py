@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 import shutil
 import sys
 from contextlib import AsyncExitStack
@@ -108,13 +109,15 @@ class MCPClientManager:
 
             if not cfg.command:
                 raise ValueError(f"MCP stdio server '{cfg.name}' requires 'command'.")
-            resolved_cmd = cfg.command
+            resolved_cmd = sys.executable if cfg.command in ("python", "python3") else cfg.command
             if not shutil.which(resolved_cmd) and not os.path.exists(resolved_cmd):
                 resolved_cmd = sys.executable
+            backend_root = str(Path(__file__).resolve().parents[2])
             params = StdioServerParameters(
                 command=resolved_cmd,
                 args=cfg.args,
                 env=build_minimal_child_env(cfg.allowed_env_vars),
+                cwd=backend_root,
             )
             read_stream, write_stream = await self._exit_stack.enter_async_context(stdio_client(params))
         else:
@@ -150,19 +153,12 @@ class MCPClientManager:
             text = getattr(item, "text", None)
             if text:
                 parts.append(text)
-        return "\n".join(parts)
-
-    def health_snapshot(self) -> list[dict[str, Any]]:
-        """Return read-only server health & allowlisted tool names (zero secrets/commands)."""
-        return [
-            {
-                "name": h.name,
-                "transport": h.transport,
-                "status": h.status,
-                "tools": list(h.tools),
-            }
-            for h in self._health.values()
-        ]
+        joined = "\n".join(parts)
+        if getattr(res, "is_error", False) or getattr(res, "isError", False):
+            if any(k in joined for k in ("SSRF blocked", "is not allowed", "Disallowed content-type")):
+                raise PermissionError(joined or f"MCP tool '{tool_name}' blocked.")
+            raise RuntimeError(joined or f"MCP tool '{tool_name}' failed.")
+        return joined
 
     async def shutdown(self) -> None:
         if self._exit_stack is not None:

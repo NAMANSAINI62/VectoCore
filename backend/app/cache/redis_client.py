@@ -1,7 +1,6 @@
 """Redis connection management, exact cache operations, and distributed locking."""
 
 import asyncio
-import json
 import logging
 from typing import Awaitable, Callable, Optional, TypeVar
 from urllib.parse import urlparse
@@ -102,7 +101,6 @@ def get_redis_client() -> aioredis.Redis:
 
 async def exact_cache_get(key: str) -> Optional[str]:
     """Retrieve exact cache entry from local memory or Redis with TTL-aware sync."""
-    global _last_redis_failure
     now = asyncio.get_event_loop().time()
 
     # 1. Check local fast-path in-memory cache with strict TTL expiration check

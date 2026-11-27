@@ -24,7 +24,7 @@ class ConversationUpdate(BaseModel):
 
 class ChatCompletionRequest(BaseModel):
     conversation_id: uuid.UUID | None = None
-    message: str = Field(min_length=1, max_length=12000)
+    message: str = Field(min_length=1, max_length=25000)
     provider: str = Field(default=_settings.CHAT_DEFAULT_PROVIDER, min_length=2, max_length=40)
     model: str = Field(default=_settings.GROQ_DEFAULT_MODEL, min_length=2, max_length=160)
 
@@ -78,8 +78,7 @@ class ModelResponse(BaseModel):
 
 
 class TextToSpeechRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=6000)
-    voice: Literal["troy", "diana", "hannah", "autumn", "austin", "daniel"] | None = None
+    text: str = Field(min_length=1, max_length=25000)
 
     @field_validator("text")
     @classmethod
@@ -93,11 +92,10 @@ class TextToSpeechRequest(BaseModel):
 class AudioTranscribeResponse(BaseModel):
     transcript: str
     model: str
-    target_language: str | None = None
 
 
 class VoicePolishRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=6000)
+    text: str = Field(min_length=1, max_length=25000)
 
     @field_validator("text")
     @classmethod

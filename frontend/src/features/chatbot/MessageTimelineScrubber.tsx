@@ -10,9 +10,7 @@ export type TimelineTurn = {
   prompt: string;
   responsePreview: string;
   isStreaming?: boolean;
-  isError?: boolean;
   modelId?: string | null;
-  provider?: string | null;
   cacheLabel?: string | null;
 };
 

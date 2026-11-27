@@ -39,8 +39,6 @@ export interface DateRangeFilterProps {
   defaultStartDate?: string | null;
   onSelectPreset: (days: number | undefined) => void;
   onApplyCustom: (range: { start: string; end: string } | null) => void;
-  onRefresh?: () => void;
-  isRefreshing?: boolean;
 }
 
 export function DateRangeFilter({

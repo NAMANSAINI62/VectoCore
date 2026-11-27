@@ -1,18 +1,16 @@
 """Authenticated conversation management and streaming chat API."""
 
 import asyncio
-import base64
 import json
 import logging
 import re
-import struct
 import time
 import uuid
 from collections.abc import AsyncIterator
 
 import httpx
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +22,7 @@ from app.dependencies.auth import get_current_user
 from app.guardrails.rate_limiter import RedisRateLimiter
 from app.guardrails.schemas import Decision
 from app.guardrails.service import get_guardrails_service
-from app.llm.registry import available_models, provider_options, validate_provider_model
+from app.llm.registry import available_models, is_valid_model_pair, provider_options, validate_provider_model
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.user import User
 from app.services.cache_engine import SemanticCacheEngine
@@ -45,7 +43,13 @@ from app.schemas.chatbot import (
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Chatbot"])
 settings = get_settings()
-_groq_audio_client = httpx.AsyncClient(timeout=30.0)
+_groq_audio_client = httpx.AsyncClient(timeout=60.0)
+
+
+async def close_audio_client() -> None:
+    """Close shared audio HTTP client on application shutdown."""
+    if not _groq_audio_client.is_closed:
+        await _groq_audio_client.aclose()
 
 
 def _sse(event: str, data: dict[str, object]) -> str:
@@ -116,7 +120,7 @@ async def _record_failed_cache_lookup(
     if error_type or error_message:
         cache_status = "error"
     else:
-        cache_status = "bypass" if final_state.get("skip_cache") else "miss"
+        cache_status = "fetch" if final_state.get("skip_cache") else "miss"
     try:
         async with async_session_factory() as telemetry_db:
             await SemanticCacheEngine(telemetry_db, user_id).record_telemetry(
@@ -132,7 +136,6 @@ async def _record_failed_cache_lookup(
                 similarity_score=getattr(lookup, "similarity_score", None),
                 detected_language=final_state.get("input_language"),
                 requested_language=final_state.get("effective_response_language"),
-                related_candidates=getattr(lookup, "related_candidates", None),
                 current_query=query,
                 rejected_candidates_snapshot=getattr(lookup, "rejected_candidates_snapshot", None),
                 validation_explanation=getattr(lookup, "validation_explanation", None),
@@ -155,10 +158,6 @@ async def _owned_conversation(db: AsyncSession, user: User, conversation_id: uui
     return conversation
 
 
-def _valid_model_pair(provider: str, model: str) -> bool:
-    return any(option.provider == provider and option.id == model for option in available_models())
-
-
 @router.get("/providers", response_model=list[ProviderResponse])
 async def get_providers(_: User = Depends(get_current_user)) -> list[ProviderResponse]:
     return [ProviderResponse.model_validate(item) for item in provider_options()]
@@ -175,7 +174,7 @@ async def create_conversation(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ConversationResponse:
-    if not _valid_model_pair(payload.provider, payload.model):
+    if not is_valid_model_pair(payload.provider, payload.model):
         raise HTTPException(status_code=422, detail="The selected model is not available for this provider.")
     conversation = ChatConversation(
         owner_id=user.id,
@@ -233,7 +232,7 @@ async def update_conversation(
     changes = payload.model_dump(exclude_unset=True)
     provider = changes.get("provider", conversation.selected_provider)
     model = changes.get("model", conversation.selected_model)
-    if not _valid_model_pair(provider, model):
+    if not is_valid_model_pair(provider, model):
         raise HTTPException(status_code=422, detail="The selected model is not available for this provider.")
     if "title" in changes:
         conversation.title = changes["title"].strip()
@@ -284,7 +283,7 @@ async def chat_completion(
         )
         blocked_conv_id = existing_conversation.id if existing_conversation is not None else None
         blocked_latency_ms = max(1, int(round(verdict.latency_ms)))
-        blocked_query = verdict.redacted_content or payload.message
+        blocked_query = f"[Guardrails blocked: {reason_cat}]"
         await SemanticCacheEngine(db, user.id).record_telemetry(
             query=blocked_query[:250],
             cache_status="blocked",
@@ -297,6 +296,7 @@ async def chat_completion(
             conversation_id=blocked_conv_id,
             response_preview=safe_message,
             current_query=blocked_query,
+            validation_explanation=f"Blocked by AI Guardrails ({reason_cat}).",
         )
         await db.close()
 
@@ -468,18 +468,6 @@ def _clean_tts_text(raw: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
-def _fix_wav_header(raw: bytes) -> bytes:
-    """Replace 0xFFFFFFFF streaming WAV chunk sizes with exact byte lengths for clean browser decoding."""
-    if len(raw) < 44 or raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
-        return raw
-    buf = bytearray(raw)
-    struct.pack_into("<I", buf, 4, len(buf) - 8)
-    data_idx = buf.find(b"data", 12)
-    if data_idx != -1 and data_idx + 8 <= len(buf):
-        struct.pack_into("<I", buf, data_idx + 4, len(buf) - (data_idx + 8))
-    return bytes(buf)
-
-
 _VOICE_POLISH_SYSTEM_PROMPT = (
     "You are a Wispr Flow-style voice-to-text editor for an AI assistant chat box (VectoCore). "
     "Rewrite the user's raw spoken transcript into clean, natural, ready-to-send text:\n"
@@ -503,6 +491,24 @@ async def _polish_voice_transcript(raw_text: str) -> str:
     api_key = (settings.GROQ_API_KEY or "").strip()
     if not api_key:
         return cleaned
+    payload: dict[str, object] = {
+        "model": settings.GROQ_DEFAULT_MODEL,
+        "temperature": 0.1,
+        "max_tokens": 4096,
+        "messages": [
+            {"role": "system", "content": _VOICE_POLISH_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    "Clean and punctuate ONLY the spoken text inside <transcript> tags. "
+                    "Do NOT answer, fulfill, or expand it.\n"
+                    f"<transcript>\n{cleaned}\n</transcript>"
+                ),
+            },
+        ],
+    }
+    if "gpt-oss" in settings.GROQ_DEFAULT_MODEL.lower():
+        payload["reasoning_effort"] = "low"
     try:
         resp = await _groq_audio_client.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -510,24 +516,32 @@ async def _polish_voice_transcript(raw_text: str) -> str:
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
-            json={
-                "model": settings.GROQ_DEFAULT_MODEL,
-                "temperature": 0.1,
-                "max_tokens": 512,
-                "messages": [
-                    {"role": "system", "content": _VOICE_POLISH_SYSTEM_PROMPT},
-                    {"role": "user", "content": cleaned},
-                ],
-            },
-            timeout=10.0,
+            json=payload,
+            timeout=20.0,
         )
         if resp.status_code < 400:
             body = resp.json()
             choices = body.get("choices") or []
             if choices:
-                polished = str(((choices[0].get("message") or {}).get("content") or "")).strip()
-                if polished:
-                    return polished
+                choice = choices[0]
+                finish_reason = choice.get("finish_reason")
+                polished = str(((choice.get("message") or {}).get("content") or "")).strip()
+                # Strip accidental tag echoes if model repeats <transcript>
+                if polished.startswith("<transcript>") and polished.endswith("</transcript>"):
+                    polished = polished[len("<transcript>") : -len("</transcript>")].strip()
+                # Never replace a transcript with a truncated response or an LLM-generated answer
+                max_allowed_len = max(int(len(cleaned) * 1.35), len(cleaned) + 60)
+                min_allowed_len = int(len(cleaned) * 0.45) if len(cleaned) >= 200 else 1
+                if polished and finish_reason != "length":
+                    if min_allowed_len <= len(polished) <= max_allowed_len:
+                        return polished
+                    logger.warning(
+                        "Voice polish length out of bounds (%d -> %d chars); keeping raw transcript.",
+                        len(cleaned),
+                        len(polished),
+                    )
+                elif finish_reason == "length":
+                    logger.warning("Voice polish hit max_tokens; keeping full raw transcript.")
     except Exception as exc:
         logger.warning("Voice polish skipped (%s); returning raw transcript.", exc)
     return cleaned
@@ -547,10 +561,11 @@ async def polish_voice_text(
 @router.post("/chat/transcribe", response_model=AudioTranscribeResponse)
 async def transcribe_audio(
     file: UploadFile = File(...),
+    polish: bool = Query(default=True),
     user: User = Depends(get_current_user),
 ) -> AudioTranscribeResponse:
-    """Transcribe voice input via Groq Whisper and polish with Wispr Flow-style cleanup."""
-    await RedisRateLimiter().check_endpoint_limit("chat_transcribe", str(user.id), limit_per_min=15)
+    """Transcribe voice input via Groq Whisper (optional LLM polish for final pass)."""
+    await RedisRateLimiter().check_endpoint_limit("chat_transcribe", str(user.id), limit_per_min=30)
     api_key = (settings.GROQ_API_KEY or "").strip()
     if not api_key:
         raise HTTPException(status_code=503, detail="Groq API key is not configured.")
@@ -570,18 +585,19 @@ async def transcribe_audio(
         raise HTTPException(status_code=resp.status_code, detail=f"Groq STT error: {resp.text[:300]}")
     body = resp.json()
     raw_transcript = (body.get("text") or "").strip()
-    polished_transcript = await _polish_voice_transcript(raw_transcript) if raw_transcript else ""
+    final_transcript = (
+        await _polish_voice_transcript(raw_transcript)
+        if polish and raw_transcript
+        else raw_transcript
+    )
     return AudioTranscribeResponse(
-        transcript=polished_transcript,
+        transcript=final_transcript,
         model=settings.GROQ_STT_MODEL,
     )
 
 
 _FIXED_EDGE_TTS_VOICE = "en-US-EmmaMultilingualNeural"
 _FIXED_EDGE_TTS_RATE = "-4%"
-_FIXED_GROQ_TTS_VOICE = "diana"
-_FIXED_GEMINI_TTS_VOICE = "Kore"
-_groq_tts_cooldown_until: float = 0.0
 
 
 async def _synthesize_edge_tts(text: str) -> bytes | None:
@@ -604,9 +620,9 @@ async def _synthesize_edge_tts(text: str) -> bytes | None:
                 chunks.append(chunk["data"])
         return b"".join(chunks)
 
-    for attempt in range(2):
+    for attempt in range(3):
         try:
-            audio_bytes = await asyncio.wait_for(_collect(), timeout=15.0)
+            audio_bytes = await asyncio.wait_for(_collect(), timeout=30.0)
             if len(audio_bytes) > 100:
                 return audio_bytes
         except Exception as exc:
@@ -616,154 +632,10 @@ async def _synthesize_edge_tts(text: str) -> bytes | None:
                 type(exc).__name__,
                 exc,
             )
-            if attempt == 0:
-                await asyncio.sleep(0.3)
-    logger.warning("Edge TTS failed after 2 attempts; falling back to Groq/Gemini TTS.")
+            if attempt < 2:
+                await asyncio.sleep(0.4)
+    logger.warning("Edge TTS failed after 3 attempts; client will fall back to browser Web Speech API.")
     return None
-
-
-def _pcm16_to_wav(
-    pcm_bytes: bytes,
-    sample_rate: int = 24000,
-    channels: int = 1,
-    bits_per_sample: int = 16,
-) -> bytes:
-    """Wrap raw signed 16-bit PCM bytes into a standard RIFF/WAVE container."""
-    byte_rate = sample_rate * channels * (bits_per_sample // 8)
-    block_align = channels * (bits_per_sample // 8)
-    data_size = len(pcm_bytes)
-    header = struct.pack(
-        "<4sI4s4sIHHIIHH4sI",
-        b"RIFF",
-        36 + data_size,
-        b"WAVE",
-        b"fmt ",
-        16,
-        1,
-        channels,
-        sample_rate,
-        byte_rate,
-        block_align,
-        bits_per_sample,
-        b"data",
-        data_size,
-    )
-    return header + pcm_bytes
-
-
-async def _synthesize_gemini_tts(text: str) -> bytes | None:
-    """Fallback TTS via Gemini native audio generation using GEMINI_API_KEY and GEMINI_TTS_MODELS."""
-    gemini_key = (settings.GEMINI_API_KEY or "").strip()
-    if not gemini_key:
-        return None
-    raw_models = [m.strip() for m in (settings.GEMINI_TTS_MODELS or "").split(",") if m.strip()]
-    if not raw_models:
-        raw_models = ["gemini-2.5-flash-preview-tts"]
-    ordered_models = sorted(raw_models, key=lambda m: (0 if "2.5-flash" in m else 1))
-    sample_rate = int(getattr(settings, "GEMINI_TTS_SAMPLE_RATE", 24000) or 24000)
-
-    for model_name in ordered_models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-        try:
-            resp = await _groq_audio_client.post(
-                url,
-                params={"key": gemini_key},
-                headers={"Content-Type": "application/json"},
-                json={
-                    "contents": [{"parts": [{"text": text}]}],
-                    "generationConfig": {
-                        "responseModalities": ["AUDIO"],
-                        "speechConfig": {
-                            "voiceConfig": {
-                                "prebuiltVoiceConfig": {"voiceName": _FIXED_GEMINI_TTS_VOICE}
-                            }
-                        },
-                    },
-                },
-            )
-            if resp.status_code >= 400:
-                logger.warning("Gemini TTS fallback (%s) returned %s", model_name, resp.status_code)
-                continue
-            body = resp.json()
-            candidates = body.get("candidates") or []
-            parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
-            for part in parts:
-                inline = part.get("inlineData") or part.get("inline_data")
-                if not inline or not inline.get("data"):
-                    continue
-                audio_bytes = base64.b64decode(inline["data"])
-                mime = str(inline.get("mimeType") or inline.get("mime_type") or "").lower()
-                if "wav" in mime:
-                    return _fix_wav_header(audio_bytes)
-                return _pcm16_to_wav(audio_bytes, sample_rate=sample_rate)
-        except Exception as exc:
-            logger.warning("Gemini TTS fallback (%s) failed: %s", model_name, exc)
-            continue
-    return None
-
-
-def _split_orpheus_chunks(text: str, max_chars: int = 190, max_chunks: int = 4) -> list[str]:
-    """Split text into <=190-char sentence chunks (Groq Orpheus hard limit is 200 chars)."""
-    sentences = [s.strip() for s in re.split(r"(?<=[.!?।])\s+", text.strip()) if s.strip()]
-    chunks: list[str] = []
-    current = ""
-    for sentence in sentences:
-        if len(sentence) > max_chars:
-            if current:
-                chunks.append(current)
-                current = ""
-            words = sentence.split()
-            part = ""
-            for w in words:
-                candidate = f"{part} {w}".strip() if part else w
-                if len(candidate) > max_chars:
-                    if part:
-                        chunks.append(part)
-                    part = w[:max_chars]
-                else:
-                    part = candidate
-            if part:
-                current = part
-        elif current and len(current) + 1 + len(sentence) > max_chars:
-            chunks.append(current)
-            current = sentence
-        else:
-            current = f"{current} {sentence}".strip() if current else sentence
-        if len(chunks) >= max_chunks:
-            break
-    if current and len(chunks) < max_chunks:
-        chunks.append(current)
-    return chunks[:max_chunks] if chunks else [text[:max_chars]]
-
-
-def _concat_wavs(wav_blobs: list[bytes]) -> bytes:
-    """Concatenate multiple WAV buffers with identical PCM format into one valid RIFF/WAVE file."""
-    valid = [_fix_wav_header(w) for w in wav_blobs if w and len(w) > 44 and w[:4] == b"RIFF"]
-    if not valid:
-        return b""
-    if len(valid) == 1:
-        return valid[0]
-
-    # Read format metadata from the first WAV's fmt chunk
-    first = valid[0]
-    channels = struct.unpack_from("<H", first, 22)[0]
-    sample_rate = struct.unpack_from("<I", first, 24)[0]
-    bits_per_sample = struct.unpack_from("<H", first, 34)[0]
-
-    pcm_parts: list[bytes] = []
-    for wav in valid:
-        data_idx = wav.find(b"data", 12)
-        if data_idx != -1 and data_idx + 8 <= len(wav):
-            pcm_parts.append(wav[data_idx + 8 :])
-        else:
-            pcm_parts.append(wav[44:])
-
-    return _pcm16_to_wav(
-        b"".join(pcm_parts),
-        sample_rate=sample_rate or 24000,
-        channels=channels or 1,
-        bits_per_sample=bits_per_sample or 16,
-    )
 
 
 @router.post("/chat/tts")
@@ -771,15 +643,12 @@ async def synthesize_speech(
     payload: TextToSpeechRequest,
     user: User = Depends(get_current_user),
 ) -> Response:
-    """Synthesize assistant read-aloud speech via Edge Neural TTS (primary) with Groq Orpheus & Gemini TTS fallback."""
-    global _groq_tts_cooldown_until
+    """Synthesize assistant read-aloud speech via Microsoft Edge Neural TTS (Tier 1 unlimited; client falls back to browser Web Speech API)."""
     await RedisRateLimiter().check_endpoint_limit("chat_tts", str(user.id), limit_per_min=60)
-    api_key = (settings.GROQ_API_KEY or "").strip()
-    cleaned = _clean_tts_text(payload.text)[:1000]
+    cleaned = _clean_tts_text(payload.text)[:5000]
     if not cleaned:
         raise HTTPException(status_code=400, detail="Nothing speakable in message.")
 
-    # 1. Primary: Microsoft Edge Neural TTS (free, unlimited, fast, soft multilingual voice)
     edge_mp3 = await _synthesize_edge_tts(cleaned)
     if edge_mp3:
         return Response(
@@ -788,79 +657,7 @@ async def synthesize_speech(
             headers={"X-TTS-Provider": "edge-tts"},
         )
 
-    groq_resp: httpx.Response | None = None
-    groq_timed_out = False
-    now = time.monotonic()
-
-    # Groq Orpheus has a hard 200-char limit and tight RPM; use it for <=200-char requests when not in 429 cooldown
-    if api_key and len(cleaned) <= 200 and now >= _groq_tts_cooldown_until:
-        try:
-            groq_resp = await _groq_audio_client.post(
-                "https://api.groq.com/openai/v1/audio/speech",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": settings.GROQ_TTS_MODEL,
-                    "voice": _FIXED_GROQ_TTS_VOICE,
-                    "input": cleaned,
-                    "response_format": "wav",
-                },
-                timeout=6.0,
-            )
-            if groq_resp.status_code < 400 and len(groq_resp.content) > 44:
-                return Response(
-                    content=_fix_wav_header(groq_resp.content),
-                    media_type="audio/wav",
-                    headers={"X-TTS-Provider": "groq"},
-                )
-            if groq_resp.status_code == 429:
-                _groq_tts_cooldown_until = time.monotonic() + 45.0
-                logger.warning("Groq TTS returned 429; cooling down 45s and using Gemini TTS fallback.")
-        except httpx.TimeoutException:
-            groq_timed_out = True
-            logger.warning("Groq TTS timed out; attempting Gemini TTS fallback.")
-        except httpx.HTTPError as exc:
-            logger.warning("Groq TTS HTTP error (%s); attempting Gemini TTS fallback.", exc)
-
-    should_fallback = (
-        not api_key
-        or len(cleaned) > 200
-        or now < _groq_tts_cooldown_until
-        or groq_timed_out
-        or groq_resp is None
-        or groq_resp.status_code == 429
-        or groq_resp.status_code >= 500
+    raise HTTPException(
+        status_code=503,
+        detail="Edge Neural TTS is temporarily unavailable. Falling back to browser speech synthesis.",
     )
-    if should_fallback:
-        fallback_wav = await _synthesize_gemini_tts(cleaned)
-        if fallback_wav:
-            return Response(
-                content=fallback_wav,
-                media_type="audio/wav",
-                headers={"X-TTS-Provider": "gemini-fallback"},
-            )
-
-    if groq_timed_out:
-        raise HTTPException(
-            status_code=504,
-            detail="Voice synthesis timed out. Please try again with shorter text.",
-        )
-
-    if groq_resp is not None:
-        headers: dict[str, str] = {}
-        retry_after = groq_resp.headers.get("retry-after")
-        if retry_after:
-            headers["Retry-After"] = retry_after
-        detail = f"Groq TTS error: {groq_resp.text[:300]}"
-        try:
-            err_json = groq_resp.json()
-            msg = (err_json.get("error") or {}).get("message")
-            if msg:
-                detail = str(msg)
-        except Exception:
-            pass
-        raise HTTPException(status_code=groq_resp.status_code, detail=detail, headers=headers or None)
-
-    raise HTTPException(status_code=503, detail="No TTS provider is currently available.")

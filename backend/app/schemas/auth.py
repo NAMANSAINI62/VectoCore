@@ -19,32 +19,11 @@ class LoginRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """Schema for authentication token response."""
+    """Schema for authentication and session refresh token responses."""
 
     access_token: str
     token_type: str = "bearer"
     expires_in: int
-
-
-class RefreshResponse(BaseModel):
-    """Schema returned on token refresh."""
-
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-
-
-class ForgotPasswordRequest(BaseModel):
-    """Schema for initiating password recovery."""
-
-    email: EmailStr = Field(..., description="Registered email address")
-
-
-class ResetPasswordRequest(BaseModel):
-    """Schema for resetting password with token."""
-
-    token: str = Field(..., min_length=10, description="Password recovery token")
-    new_password: str = Field(..., min_length=8, max_length=128, description="New secure password")
 
 
 class MessageResponse(BaseModel):
@@ -68,14 +47,6 @@ class EmailOtpVerifyRequest(BaseModel):
 
 class PasswordResetOtpRequest(BaseModel):
     """Schema for resetting a password using a 6-digit email OTP."""
-
-    email: EmailStr = Field(..., description="Registered email address")
-    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$", description="6-digit OTP code")
-    new_password: str = Field(..., min_length=8, max_length=128, description="New password (min 8 characters)")
-
-
-class ResetPasswordOtpRequest(BaseModel):
-    """Schema for resetting password using a 6-digit email OTP."""
 
     email: EmailStr = Field(..., description="Registered email address")
     code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$", description="6-digit OTP code")

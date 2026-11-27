@@ -51,7 +51,7 @@ def test_chat_request_trims_message_and_rejects_whitespace() -> None:
 
 def test_chat_request_enforces_message_size() -> None:
     with pytest.raises(ValueError):
-        ChatCompletionRequest(message="x" * 12001)
+        ChatCompletionRequest(message="x" * 25001)
 
 
 def test_provider_errors_are_classified_without_exposing_upstream_details() -> None:
@@ -307,8 +307,6 @@ def test_gemini_intent_complexity_dynamic_routing():
         gemini_opts = [opt for opt in registry.available_models() if opt.provider == "gemini"]
         gemini_ids = {opt.id for opt in gemini_opts}
         assert gemini_ids == {
-            "gemma-4-31b-it",
-            "gemini-3.8-flash",
             "gemini-3-flash-preview",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
@@ -316,7 +314,7 @@ def test_gemini_intent_complexity_dynamic_routing():
             "gemini-flash-lite-latest",
         }
         # Removed/0-quota/deprecated models stay excluded
-        for removed_id in ("gemini-auto", "gemini-4-argon", "gemini-4-carbon", "gemini-2.5-pro", "gemini-2.5-flash", "deep-research-preview-04-2026"):
+        for removed_id in ("gemini-auto", "gemma-4-31b-it", "gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon", "gemini-2.5-pro", "gemini-2.5-flash", "deep-research-preview-04-2026"):
             assert removed_id not in gemini_ids
 
         # Every concrete Gemini model belongs to one unique UI tier (no duplicates across tiers)
@@ -325,45 +323,27 @@ def test_gemini_intent_complexity_dynamic_routing():
             for opt in gemini_opts
             if opt.tier
         }
-        assert set(tier_buckets.keys()) == {"deep_research", "complex", "balanced", "fast"}
+        assert set(tier_buckets.keys()) == {"deep_research", "balanced", "fast"}
         all_tiered_ids = [mid for ids in tier_buckets.values() for mid in ids]
         assert len(all_tiered_ids) == len(set(all_tiered_ids))
 
-        # Concrete selection stays on requested model when healthy, then rotates after its soft quota cap.
-        prov_dr, mod_dr, reason_dr = registry.select_best_model_candidate(
-            "gemini",
-            "gemma-4-31b-it",
-            message="Perform deep research on distributed semantic cache invalidation.",
-        )
-        assert (prov_dr, mod_dr) == ("gemini", "gemma-4-31b-it")
-        assert reason_dr is None
-
-        for _ in range(25):
-            router.record_request("gemini", "gemma-4-31b-it")
-        prov_dr2, mod_dr2, _ = registry.select_best_model_candidate(
-            "gemini",
-            "gemma-4-31b-it",
-            message="Perform deep research on distributed semantic cache invalidation.",
-        )
-        assert (prov_dr2, mod_dr2) == ("gemini", "gemini-3.8-flash")
-
-        # Complex model stays on Gemini 3.8 Flash when healthy, then fails over to Gemini 3 Flash Preview at 4 RPM
+        # Deep Research model stays on Gemini 3 Flash Preview when healthy, then rotates at 4 RPM
         prov_c, mod_c, reason_c = registry.select_best_model_candidate(
             "gemini",
-            "gemini-3.8-flash",
+            "gemini-3-flash-preview",
             message="Design a distributed architecture step-by-step with tradeoffs.",
         )
-        assert (prov_c, mod_c) == ("gemini", "gemini-3.8-flash")
+        assert (prov_c, mod_c) == ("gemini", "gemini-3-flash-preview")
         assert reason_c is None
 
         for _ in range(4):
-            router.record_request("gemini", "gemini-3.8-flash")
+            router.record_request("gemini", "gemini-3-flash-preview")
         prov_c2, mod_c2, _ = registry.select_best_model_candidate(
             "gemini",
-            "gemini-3.8-flash",
+            "gemini-3-flash-preview",
             message="Design a distributed architecture step-by-step with tradeoffs.",
         )
-        assert (prov_c2, mod_c2) == ("gemini", "gemini-3-flash-preview")
+        assert (prov_c2, mod_c2) == ("gemini", "gemini-3.5-flash-lite")
 
         # Fast short query stays on requested Gemini 3.1 Flash-Lite
         prov_f, mod_f, reason_f = registry.select_best_model_candidate(
@@ -393,3 +373,72 @@ def test_gemini_intent_complexity_dynamic_routing():
         assert (prov_b2, mod_b2) == ("gemini", "gemini-3.1-flash-lite")
     finally:
         router.reset()
+
+
+def test_tier_response_depth_policies():
+    from app.chatbot.graph import build_tier_response_policy
+    from app.llm import registry
+
+    # Merged Deep Research + Complex models both resolve to deep_research
+    tier_complex, _ = registry.resolve_effective_tier(
+        "gemini", "gemini-3-flash-preview", message="Summarize https://example.com"
+    )
+    assert tier_complex == "deep_research"
+    deep_policy = build_tier_response_policy(tier_complex)
+    assert "DEEP RESEARCH TIER" in deep_policy
+    assert "DEFAULT MODE (BALANCED)" in deep_policy
+    assert "in-depth" in deep_policy
+    assert "vistaar se" in deep_policy and "विस्तार से" in deep_policy
+
+    tier_groq_heavy, _ = registry.resolve_effective_tier(
+        "groq", "openai/gpt-oss-120b", message="Quick question"
+    )
+    assert tier_groq_heavy == "deep_research"
+
+    tier_balanced, _ = registry.resolve_effective_tier(
+        "gemini", "gemini-3.5-flash-lite", message="Deep research on caching"
+    )
+    assert tier_balanced == "balanced"
+    assert "BALANCED TIER" in build_tier_response_policy(tier_balanced)
+
+    tier_fast, _ = registry.resolve_effective_tier(
+        "gemini", "gemini-3.1-flash-lite", message="Explain distributed caching architecture"
+    )
+    assert tier_fast == "fast"
+    assert "FAST TIER" in build_tier_response_policy(tier_fast)
+
+    tier_gpt_20b, _ = registry.resolve_effective_tier(
+        "groq", "openai/gpt-oss-20b", message="What is TTL?"
+    )
+    assert tier_gpt_20b == "balanced"
+
+    tier_ernie, _ = registry.resolve_effective_tier(
+        "openrouter", "baidu/ernie-5.5-flash-preview:free", message="Compare caching"
+    )
+    assert tier_ernie == "fast"
+
+
+def test_multilingual_deep_research_intent_classification():
+    from app.llm import registry
+
+    # Simple definitional questions across languages must NOT trigger deep_research intent
+    for simple_q in (
+        "What is Docker?",
+        "What is system integrations?",
+        "Docker kya hota hai?",
+        "डॉकर क्या है?",
+    ):
+        intent_tier, _ = registry.classify_query_intent_and_complexity(simple_q)
+        assert intent_tier != "deep_research", f"Unexpected deep_research for simple query: {simple_q}"
+
+    # Explicit deep/detailed/architectural phrasings in English, Hinglish, and Hindi DO trigger deep_research
+    for deep_q in (
+        "Explain Docker architecture in detail",
+        "Give me a thorough breakdown of how Docker works under the hood",
+        "Docker ko vistaar se samjhao",
+        "System integration ko detail mein aur step by step samjhao",
+        "डॉकर को विस्तार से समझाओ",
+        "डॉकर का आर्किटेक्चर और गहराई से विश्लेषण करो",
+    ):
+        intent_tier, _ = registry.classify_query_intent_and_complexity(deep_q)
+        assert intent_tier == "deep_research", f"Expected deep_research for: {deep_q}"

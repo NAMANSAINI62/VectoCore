@@ -34,12 +34,10 @@ class Settings(BaseSettings):
     REDIS_CONNECT_TIMEOUT: float = 2.0
     REDIS_MAX_CONNECTIONS: int = 20
 
-    # OpenRouter AI configuration (single free chat model + TTS)
+    # OpenRouter AI configuration
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     CHAT_AVAILABLE_MODELS: str = "baidu/ernie-5.5-flash-preview:free"
-    TEXT_TO_SPEECH_MODEL: str = "fish-audio/s2.1-pro-free:free"
-    TTS_PCM_SAMPLE_RATE: int = 24000
     OPENROUTER_TIMEOUT_SECONDS: float = 180.0
 
     # Chat provider configuration. Secrets are sourced from the backend environment.
@@ -49,20 +47,10 @@ class Settings(BaseSettings):
 
     GEMINI_API_KEY: str = ""
     GEMINI_AVAILABLE_MODELS: str = (
-        "gemma-4-31b-it,"
-        "gemini-3.8-flash,gemini-3-flash-preview,"
+        "gemini-3-flash-preview,"
         "gemini-3.5-flash-lite,"
         "gemini-3.1-flash-lite,gemini-3.1-flash-lite-preview,gemini-flash-lite-latest"
     )
-    GEMINI_TTS_MODELS: str = (
-        "gemini-3.8-flash-tts,gemini-3.1-flash-tts-preview,"
-        "gemini-3.8-flash-lite-tts,gemini-2.5-flash-preview-tts"
-    )
-    GEMINI_TRANSCRIBE_MODEL: str = "gemini-3.5-transcribe"
-    GEMINI_LIVE_MODELS: str = (
-        "gemini-3.8-live-extended-thinking,gemini-3.8-live,gemini-3.1-flash-live-preview"
-    )
-    GEMINI_TTS_SAMPLE_RATE: int = 24000
 
     COHERE_API_KEY: str = ""
     COHERE_AVAILABLE_MODELS: str = "command-a-03-2025"
@@ -74,22 +62,13 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_NAME: str = "nvidia/nemotron-3.5-embed-1b"
 
     CHAT_DEFAULT_PROVIDER: str = "groq"
-    CHAT_CONTEXT_MESSAGES: int = 24
-    CHAT_CONTEXT_MAX_CHARS: int = 24000
     GROQ_STT_MODEL: str = "whisper-large-v3-turbo"
-    GROQ_TTS_MODEL: str = "canopylabs/orpheus-v1-english"
-    GROQ_TTS_VOICE: str = "diana"
-
-    # Model Context Protocol (MCP) Client
-    MCP_ENABLED: bool = False
-    MCP_SERVERS_CONFIG_PATH: str = ""
 
     # JWT Authentication & Security
     JWT_SECRET_KEY: str = "super_secure_jwt_secret_key_change_in_production_min_32_characters"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 60
     COOKIE_SECURE: bool = False  # Set to True in production (HTTPS)
     COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
 
@@ -101,9 +80,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "http://localhost:4317/api/v1/auth/google/callback"
 
-    # SMTP & Passwordless Email OTP
-    RESEND_API_KEY: str = ""
-    EMAIL_FROM: str = ""
+    # Brevo / SMTP & Passwordless Email OTP
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
@@ -113,7 +90,6 @@ class Settings(BaseSettings):
     BREVO_API_KEY: str = ""
     EMAIL_OTP_EXPIRE_MINUTES: int = 5
     EMAIL_OTP_MAX_ATTEMPTS: int = 5
-    EMAIL_OTP_RESEND_COOLDOWN_SECONDS: int = 30
 
     # CORS
     CORS_ORIGINS: Annotated[list[str], NoDecode] = [

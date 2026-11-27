@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Dialog, DialogPanel } from '@headlessui/react';
-import { TelemetryItem } from '@/store/cacheApi';
+import { SemanticMatchCandidateItem, TelemetryItem } from '@/store/cacheApi';
 import { X, Zap, Sparkles } from 'lucide-react';
 import { getLanguageLabel } from '@/lib/languages';
 
@@ -12,7 +12,7 @@ export function getBadgeLabel(status: string): string {
     semantic_hit: 'SEMANTIC HIT',
     blocked: 'BLOCKED',
     error: 'ERROR',
-    bypass: 'BYPASS',
+    fetch: 'FETCH',
   };
   return labels[status] ?? 'MISS';
 }
@@ -27,8 +27,8 @@ export function getBadgeStyle(status: string): React.CSSProperties {
   if (status === 'error') {
     return { backgroundColor: 'rgba(239, 68, 68, 0.14)', color: '#dc2626' };
   }
-  if (status === 'bypass') {
-    return { backgroundColor: 'var(--muted)', color: 'var(--muted-foreground)' };
+  if (status === 'fetch') {
+    return { backgroundColor: 'rgba(14, 165, 233, 0.14)', color: '#0284c7' };
   }
   return { backgroundColor: 'var(--miss-bg)', color: 'var(--miss-text)' };
 }
@@ -41,6 +41,33 @@ function CodeBox({ children, maxH = 'max-h-44' }: { children: React.ReactNode; m
     >
       {children}
     </div>
+  );
+}
+
+function RejectedCandidatesList({ candidates }: { candidates: SemanticMatchCandidateItem[] }) {
+  if (candidates.length === 0) return null;
+  return (
+    <details className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-2.5">
+      <summary className="cursor-pointer text-[11px] font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] select-none">
+        Rejected Semantic Candidates ({candidates.length})
+      </summary>
+      <div className="mt-2.5 space-y-2">
+        {candidates.map((rej, idx) => (
+          <div key={`${rej.cache_entry_id || idx}-rej-${idx}`} className="p-2.5 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 space-y-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--miss-bg)', color: 'var(--miss-text)' }}>
+                {rej.intent_status || 'Incompatible'}
+              </span>
+              <span className="text-[11px] font-mono text-[var(--muted-foreground)]">
+                Similarity: {rej.similarity_score.toFixed(4)} ({(rej.similarity_score * 100).toFixed(1)}%)
+              </span>
+            </div>
+            <p className="text-xs text-[var(--foreground)] whitespace-pre-wrap">{rej.previous_query}</p>
+            {rej.reason && <p className="text-[11px] text-[var(--muted-foreground)]">{rej.reason}</p>}
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -66,34 +93,12 @@ export function TelemetryTraceModal({
       const friendlyReason =
         'No matching cached answer was found for this question, so a fresh response was generated directly by the AI model.';
       return (
-        <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/25 p-4">
+        <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--muted)]/25 p-4">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-wider text-[var(--foreground)]">Reason</p>
             <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">{friendlyReason}</p>
           </div>
-          {insights.rejected_candidates.length > 0 && (
-            <details className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-2.5">
-              <summary className="cursor-pointer text-[11px] font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] select-none">
-                Rejected Semantic Candidates ({insights.rejected_candidates.length})
-              </summary>
-              <div className="mt-2.5 space-y-2">
-                {insights.rejected_candidates.map((rej, idx) => (
-                  <div key={`${rej.cache_entry_id || idx}-rej-${idx}`} className="p-2.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 space-y-1">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--miss-bg)', color: 'var(--miss-text)' }}>
-                        {rej.intent_status || 'Incompatible'}
-                      </span>
-                      <span className="text-[11px] font-mono text-[var(--muted-foreground)]">
-                        Similarity: {rej.similarity_score.toFixed(4)} ({(rej.similarity_score * 100).toFixed(1)}%)
-                      </span>
-                    </div>
-                    <p className="text-xs text-[var(--foreground)] whitespace-pre-wrap">{rej.previous_query}</p>
-                    {rej.reason && <p className="text-[11px] text-[var(--muted-foreground)]">{rej.reason}</p>}
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
+          <RejectedCandidatesList candidates={insights.rejected_candidates} />
         </div>
       );
     }
@@ -114,7 +119,7 @@ export function TelemetryTraceModal({
         : base || 'Matched previously cached query.';
 
     return (
-      <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/25 p-4">
+      <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--muted)]/25 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-[var(--foreground)]">Semantic Match Insights</p>
@@ -137,7 +142,7 @@ export function TelemetryTraceModal({
               <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--card)] space-y-1.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-[var(--secondary)] text-[var(--foreground)]">#{matched?.rank ?? 1}</span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-[var(--muted)] text-[var(--foreground)]">#{matched?.rank ?? 1}</span>
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--hit-bg)', color: 'var(--hit-text)' }}>Selected Match</span>
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--hit-bg)', color: 'var(--hit-text)' }}>{matched?.intent_status || 'Compatible'}</span>
                   </div>
@@ -160,17 +165,17 @@ export function TelemetryTraceModal({
         <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--card)] space-y-2 text-xs">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--foreground)]">Validation Summary</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
-            <div className="rounded-md bg-[var(--secondary)]/40 px-2.5 py-1.5">
+            <div className="rounded-md bg-[var(--muted)]/40 px-2.5 py-1.5">
               <span className="text-[var(--muted-foreground)] block">Decision</span>
               <span className="font-semibold text-[var(--foreground)]">{decisionLabel}</span>
             </div>
-            <div className="rounded-md bg-[var(--secondary)]/40 px-2.5 py-1.5">
+            <div className="rounded-md bg-[var(--muted)]/40 px-2.5 py-1.5">
               <span className="text-[var(--muted-foreground)] block">Similarity Score</span>
               <span className="font-mono font-semibold text-[var(--foreground)]">
                 {simScore !== null ? `${simScore.toFixed(4)} (${(simScore * 100).toFixed(1)}%)` : 'N/A'}
               </span>
             </div>
-            <div className="rounded-md bg-[var(--secondary)]/40 px-2.5 py-1.5">
+            <div className="rounded-md bg-[var(--muted)]/40 px-2.5 py-1.5">
               <span className="text-[var(--muted-foreground)] block">Configured Threshold</span>
               <span className="font-mono font-semibold text-[var(--foreground)]">
                 {threshold.toFixed(4)} ({(threshold * 100).toFixed(1)}%)
@@ -182,29 +187,7 @@ export function TelemetryTraceModal({
           </p>
         </div>
 
-        {insights.rejected_candidates.length > 0 && (
-          <details className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-2.5">
-            <summary className="cursor-pointer text-[11px] font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] select-none">
-              Rejected Semantic Candidates ({insights.rejected_candidates.length})
-            </summary>
-            <div className="mt-2.5 space-y-2">
-              {insights.rejected_candidates.map((rej, idx) => (
-                <div key={`${rej.cache_entry_id || idx}-rej-${idx}`} className="p-2.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 space-y-1">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--miss-bg)', color: 'var(--miss-text)' }}>
-                      {rej.intent_status || 'Incompatible'}
-                    </span>
-                    <span className="text-[11px] font-mono text-[var(--muted-foreground)]">
-                      Similarity: {rej.similarity_score.toFixed(4)} ({(rej.similarity_score * 100).toFixed(1)}%)
-                    </span>
-                  </div>
-                  <p className="text-xs text-[var(--foreground)] whitespace-pre-wrap">{rej.previous_query}</p>
-                  {rej.reason && <p className="text-[11px] text-[var(--muted-foreground)]">{rej.reason}</p>}
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
+        <RejectedCandidatesList candidates={insights.rejected_candidates} />
       </div>
     );
   };
@@ -239,11 +222,19 @@ export function TelemetryTraceModal({
                   <span className="font-mono font-semibold text-[var(--foreground)] mt-1 block">{activeLog.cache_lookup_latency_ms}ms</span>
                 </div>
               )}
-              {!isHit && (
+              {!isHit && activeLog.cache_status !== 'blocked' && (
                 <div>
                   <span className="text-[var(--muted-foreground)] block">LLM Latency</span>
                   <span className="font-mono font-semibold text-[var(--foreground)] mt-1 block">
                     {activeLog.llm_latency_ms ?? Math.max(0, activeLog.total_latency_ms - activeLog.cache_lookup_latency_ms)}ms
+                  </span>
+                </div>
+              )}
+              {activeLog.cache_status === 'blocked' && (
+                <div>
+                  <span className="text-[var(--muted-foreground)] block">Guardrail Check</span>
+                  <span className="font-mono font-semibold text-[var(--foreground)] mt-1 block">
+                    {activeLog.total_latency_ms}ms (LLM: {activeLog.llm_latency_ms ?? 0}ms)
                   </span>
                 </div>
               )}
@@ -314,7 +305,7 @@ export function TelemetryTraceModal({
                 </div>
               )}
 
-              {(activeLog.cache_status === 'error' || activeLog.cache_status === 'bypass') && (
+              {(activeLog.cache_status === 'blocked' || activeLog.cache_status === 'error' || activeLog.cache_status === 'fetch') && (
                 <div className="rounded-xl border border-[var(--border)] bg-[var(--background)]/60 p-3.5 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase" style={getBadgeStyle(activeLog.cache_status)}>
@@ -323,8 +314,11 @@ export function TelemetryTraceModal({
                     {activeLog.error_type && <span className="font-mono text-[11px] text-[var(--muted-foreground)]">{activeLog.error_type}</span>}
                   </div>
                   <p className="text-xs text-[var(--muted-foreground)]">
-                    {activeLog.error_message || activeLog.response_preview || (activeLog.cache_status === 'bypass' ? 'Context-dependent follow-up bypassed global semantic cache.' : 'Execution failed before a response could be cached.')}
+                    {activeLog.error_message || (activeLog.cache_status === 'fetch' ? 'Live MCP tool fetched real-time web data.' : activeLog.cache_status === 'blocked' ? 'Request was blocked by AI Guardrails before reaching the LLM.' : activeLog.response_preview || 'Execution failed before a response could be cached.')}
                   </p>
+                  {(activeLog.cache_status === 'blocked' || activeLog.cache_status === 'fetch') && activeLog.response_preview && activeLog.response_preview !== activeLog.error_message && (
+                    <CodeBox maxH="max-h-36">{activeLog.response_preview}</CodeBox>
+                  )}
                 </div>
               )}
             </div>

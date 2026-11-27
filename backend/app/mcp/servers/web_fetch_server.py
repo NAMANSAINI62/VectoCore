@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import ipaddress
 import json
 import re
@@ -10,12 +11,13 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 mcp = MCPServer("fetch")
 
-_MAX_BYTES = 1_048_576
+_MAX_BYTES = 2_097_152
 _TIMEOUT_SEC = 10.0
-_MAX_REDIRECTS = 3
+_MAX_REDIRECTS = 5
 _USER_AGENT = "VectoCoreBot/1.0 (+https://github.com/NAMANSAINI62/VectoCore)"
 
 
@@ -50,14 +52,70 @@ def resolve_and_validate_host(hostname: str) -> str:
     return safe_ips[0]
 
 
+def _strip_html_fragment(fragment: str, *, strip_chrome: bool = True, strip_header: bool = True) -> str:
+    cleaned = re.sub(r"<!--.*?-->", " ", fragment, flags=re.DOTALL)
+    cleaned = re.sub(
+        r"<(script|style|noscript|template|svg|iframe)[^>]*>.*?</\1>",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if strip_chrome:
+        chrome_tags = "nav|header|footer|aside" if strip_header else "nav|footer|aside"
+        cleaned = re.sub(
+            rf"<({chrome_tags})[^>]*>.*?</\1>",
+            " ",
+            cleaned,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = html.unescape(cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _extract_meta_description(raw_html: str) -> str:
+    patterns = (
+        r'<meta[^>]+(?:name|property)=["\'](?:description|og:description)["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:name|property)=["\'](?:description|og:description)["\']',
+    )
+    for pat in patterns:
+        m = re.search(pat, raw_html, re.IGNORECASE)
+        if m:
+            desc = re.sub(r"\s+", " ", html.unescape(m.group(1))).strip()
+            if len(desc) >= 20:
+                return desc[:400]
+    return ""
+
+
 def _html_to_text(raw_html: str) -> tuple[str, str]:
     title_match = re.search(r"<title[^>]*>(.*?)</title>", raw_html, re.IGNORECASE | re.DOTALL)
-    title = re.sub(r"\s+", " ", title_match.group(1)).strip() if title_match else ""
-    cleaned = re.sub(r"<!--.*?-->", " ", raw_html, flags=re.DOTALL)
-    cleaned = re.sub(r"<(script|style|noscript|template)[^>]*>.*?</\1>", " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return title[:120], cleaned
+    title = re.sub(r"\s+", " ", html.unescape(title_match.group(1))).strip() if title_match else ""
+    meta_desc = _extract_meta_description(raw_html)
+
+    body_text = ""
+    for tag in ("main", "article"):
+        m = re.search(rf"<{tag}[^>]*>(.*?)</{tag}>", raw_html, re.IGNORECASE | re.DOTALL)
+        if m:
+            candidate = _strip_html_fragment(m.group(1), strip_chrome=True, strip_header=False)
+            if len(candidate) >= 200:
+                body_text = candidate
+                break
+
+    if not body_text:
+        body_text = _strip_html_fragment(raw_html, strip_chrome=True, strip_header=True)
+    if len(body_text) < 200:
+        fallback_text = _strip_html_fragment(raw_html, strip_chrome=True, strip_header=False)
+        if len(fallback_text) > len(body_text):
+            body_text = fallback_text
+    if len(body_text) < 120:
+        plain_text = _strip_html_fragment(raw_html, strip_chrome=False)
+        if len(plain_text) > len(body_text):
+            body_text = plain_text
+
+    if meta_desc and meta_desc.lower() not in body_text[:600].lower():
+        body_text = f"{meta_desc} — {body_text}" if body_text else meta_desc
+
+    return title[:120], body_text
 
 
 async def fetch_public_page(url: str) -> dict[str, str]:
@@ -77,7 +135,12 @@ async def fetch_public_page(url: str) -> dict[str, str]:
             async with client.stream(
                 "GET",
                 connect_url,
-                headers={"Host": parsed.netloc, "User-Agent": _USER_AGENT},
+                headers={
+                    "Host": parsed.netloc,
+                    "User-Agent": _USER_AGENT,
+                    "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
                 extensions={"sni_hostname": hostname} if parsed.scheme == "https" else None,
             ) as resp:
                 if resp.status_code in (301, 302, 303, 307, 308):
@@ -93,13 +156,17 @@ async def fetch_public_page(url: str) -> dict[str, str]:
                 chunks: list[bytes] = []
                 total = 0
                 async for chunk in resp.aiter_bytes():
-                    total += len(chunk)
-                    if total > _MAX_BYTES:
-                        raise ValueError("Response exceeded 1 MB download limit.")
+                    remaining = _MAX_BYTES - total
+                    if remaining <= 0:
+                        break
+                    if len(chunk) > remaining:
+                        chunks.append(chunk[:remaining])
+                        break
                     chunks.append(chunk)
+                    total += len(chunk)
                 raw_text = b"".join(chunks).decode("utf-8", errors="ignore")
                 title, text = _html_to_text(raw_text) if ctype == "text/html" else (hostname, raw_text.strip())
-                return {"source_url": current_url, "title": title or hostname, "content": text[:1600]}
+                return {"source_url": current_url, "title": title or hostname, "content": text[:3500]}
 
     raise ValueError("Too many redirects.")
 
@@ -107,8 +174,19 @@ async def fetch_public_page(url: str) -> dict[str, str]:
 @mcp.tool()
 async def get_page(url: str) -> str:
     """Fetch and return readable text from a public HTTP/HTTPS web page."""
-    data = await fetch_public_page(url)
-    return json.dumps(data)
+    try:
+        data = await fetch_public_page(url)
+        return json.dumps(data, ensure_ascii=False)
+    except PermissionError as exc:
+        raise ToolError(str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        reason = exc.response.reason_phrase or "Error"
+        raise ToolError(f"HTTP {code} {reason}: target site rejected automated fetch.") from exc
+    except httpx.TimeoutException as exc:
+        raise ToolError("Request timed out while fetching the page.") from exc
+    except (ValueError, httpx.HTTPError) as exc:
+        raise ToolError(str(exc)) from exc
 
 
 if __name__ == "__main__":

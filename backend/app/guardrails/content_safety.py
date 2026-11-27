@@ -11,7 +11,6 @@ and avoids `llmrails.py`'s global `process_events_semaphore = asyncio.Semaphore(
 
 import asyncio
 import json
-import os
 import re
 import time
 from typing import Any
@@ -22,28 +21,14 @@ from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
 from app.config.settings import get_settings
 from app.guardrails.config.settings import GuardrailsSettings, get_guardrails_settings
-from app.guardrails.schemas import Decision, LayerMode, LayerResult, ScoreBand
-
-_PRIVACY_ONLY_LABELS = frozenset({
-    "pii",
-    "privacy",
-    "pii/privacy",
-    "personal_data",
-    "personal information",
-    "sensitive_data",
-    "private_information",
-    "s15",
-})
-
-_SELF_HARM_LABELS = frozenset({
-    "self_harm",
-    "self-harm",
-    "suicide",
-    "suicide_or_self_harm",
-    "suicide and self harm",
-    "self harm",
-    "s11",
-})
+from app.guardrails.schemas import (
+    Decision,
+    LayerMode,
+    LayerResult,
+    ScoreBand,
+    has_self_harm_category,
+    is_privacy_only_categories,
+)
 
 
 def parse_nemoguard_safety_json(raw_text: str, check_field: str = "User Safety") -> tuple[bool, list[str]]:
@@ -77,29 +62,6 @@ def parse_nemoguard_safety_json(raw_text: str, check_field: str = "User Safety")
         categories = [str(c).strip() for c in raw_cats if str(c).strip()]
 
     return is_safe, categories
-
-
-def _is_privacy_only(categories: list[str]) -> bool:
-    if not categories:
-        return False
-    for cat in categories:
-        norm = cat.strip().lower().replace("_", " ")
-        if norm not in _PRIVACY_ONLY_LABELS and norm.replace(" ", "_") not in _PRIVACY_ONLY_LABELS:
-            return False
-    return True
-
-
-def _has_self_harm(categories: list[str]) -> bool:
-    for cat in categories:
-        norm = cat.strip().lower().replace("_", " ")
-        if (
-            norm in _SELF_HARM_LABELS
-            or norm.replace(" ", "_") in _SELF_HARM_LABELS
-            or "self harm" in norm
-            or "suicide" in norm
-        ):
-            return True
-    return False
 
 
 def _build_input_safety_prompt(user_input: str) -> str:
@@ -170,28 +132,20 @@ class ContentSafetyDetector:
     ) -> tuple[bool, list[str]]:
         if hasattr(self._breaker, "call_async") and hasattr(self._breaker, "timeout_sec"):
             return await self._breaker.call_async(
-                self._call_model,
-                prompt,
-                check_field,
-                timeout_sec=timeout_sec,
+                self._call_model, prompt, check_field, timeout_sec=timeout_sec
             )
-
-        async def _guarded() -> tuple[bool, list[str]]:
+        with self._breaker._lock:
+            if self._breaker.current_state == pybreaker.STATE_OPEN:
+                self._breaker.state.before_call(self._call_model, prompt, check_field)
+        try:
+            out = await asyncio.wait_for(self._call_model(prompt, check_field), timeout=timeout_sec)
+        except BaseException as exc:
             with self._breaker._lock:
-                if self._breaker.current_state == pybreaker.STATE_OPEN:
-                    self._breaker.state.before_call(self._call_model, prompt, check_field)
-            try:
-                out = await asyncio.wait_for(self._call_model(prompt, check_field), timeout=timeout_sec)
-            except BaseException as exc:
-                with self._breaker._lock:
-                    self._breaker.state._handle_error(exc)
-                raise
-            else:
-                with self._breaker._lock:
-                    self._breaker.state._handle_success()
-                return out
-
-        return await _guarded()
+                self._breaker.state._handle_error(exc)
+            raise
+        with self._breaker._lock:
+            self._breaker.state._handle_success()
+        return out
 
     async def check_input(
         self,
@@ -295,7 +249,7 @@ class ContentSafetyDetector:
                 )
 
             # Policy rule: privacy/PII categories from content-safety never BLOCK/FALLBACK
-            if _is_privacy_only(categories):
+            if is_privacy_only_categories(categories):
                 return LayerResult(
                     layer=layer,
                     detector=detector_name,
@@ -307,7 +261,7 @@ class ContentSafetyDetector:
                     degraded=False,
                 )
 
-            band = ScoreBand.CRITICAL if _has_self_harm(categories) else ScoreBand.HIGH
+            band = ScoreBand.CRITICAL if has_self_harm_category(categories) else ScoreBand.HIGH
             unsafe_decision = Decision.FALLBACK if layer == "input" else Decision.BLOCK
             return LayerResult(
                 layer=layer,

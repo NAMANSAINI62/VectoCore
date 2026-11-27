@@ -8,12 +8,12 @@ import {
   Bookmark,
   Check,
   Copy,
+  Globe,
   LoaderCircle,
   MessageSquarePlus,
   PanelLeftOpen,
   Pause,
   Sparkles,
-  Square,
   ThumbsDown,
   ThumbsUp,
   Volume2,
@@ -132,7 +132,7 @@ export function Chatbot() {
   const dispatch = useDispatch();
   const [sending, setSending] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const { data: cacheStats, refetch: refetchCacheStats } = useGetCacheStatsQuery({ days: 30 });
+  const { data: cacheStats } = useGetCacheStatsQuery({ days: 30 });
   const modelAvgLatencyMs = useMemo(() => {
     const map: Record<string, number> = {};
     for (const m of cacheStats?.model_usage ?? []) {
@@ -159,7 +159,6 @@ export function Chatbot() {
   const [bookmarkedMap, setBookmarkedMap] = useState<Record<string, boolean>>({});
   const [ttsLoadingId, setTtsLoadingId] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
-  const [paused, setPaused] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
 
@@ -180,6 +179,7 @@ export function Chatbot() {
   const openingIdRef = useRef<string | null>(null);
   const conversationCacheRef = useRef<Map<string, Conversation>>(new Map());
   const ttsCacheRef = useRef<Map<string, string[]>>(new Map());
+  const ttsObjectUrlsRef = useRef<Set<string>>(new Set());
   const ttsSessionRef = useRef(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -196,6 +196,24 @@ export function Chatbot() {
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const syncInFlightRef = useRef(false);
+
+  useEffect(() => {
+    const objectUrls = ttsObjectUrlsRef.current;
+    const cacheMap = ttsCacheRef.current;
+    return () => {
+      ttsSessionRef.current += 1;
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+      objectUrls.clear();
+      cacheMap.clear();
+    };
+  }, []);
 
   const refreshConversations = useCallback(async () => {
     const rows = await ApiClient.get<Conversation[]>(`${API}/conversations`);
@@ -224,7 +242,10 @@ export function Chatbot() {
           if (sendingRef.current || activeIdRef.current !== currentActiveId) return;
           conversationCacheRef.current.set(currentActiveId, detail);
           const nextMsgs = detail.messages ?? [];
-          if (nextMsgs.length !== messagesRef.current.length) {
+          const hasLocalBlocked = messagesRef.current.some(
+            (m) => m.id.startsWith('blocked-') || m.id.startsWith('blocked-user-'),
+          );
+          if (!hasLocalBlocked && nextMsgs.length !== messagesRef.current.length) {
             setMessages(nextMsgs);
           }
         }
@@ -373,14 +394,16 @@ export function Chatbot() {
   const handleSendMessage = async (text: string) => {
     if (!text || sending || !activeProvider?.configured) return;
 
-    const assistantId = `pending-${Date.now()}`;
+    const nowTs = Date.now();
+    const userMsgId = `user-${nowTs}`;
+    const assistantId = `pending-${nowTs}`;
     const controller = new AbortController();
     abortRef.current = controller;
     const timeoutId = window.setTimeout(() => controller.abort('timeout_3m'), 180_000);
 
     setMessages((current) => [
       ...current,
-      { id: `user-${Date.now()}`, role: 'user', content: text },
+      { id: userMsgId, role: 'user', content: text },
       { id: assistantId, role: 'assistant', content: '', status_text: 'Analyzing prompt & preparing workflow…' },
     ]);
     setSending(true);
@@ -443,23 +466,28 @@ export function Chatbot() {
             if (typeof data.message_id === 'string') {
               const switchedFrom = typeof data.switched_from === 'string' ? data.switched_from : undefined;
               const switchReason = typeof data.switch_reason === 'string' ? data.switch_reason : undefined;
+              const isBlocked = Boolean(data.blocked);
               setMessages((current) =>
-                current.map((item) =>
-                  item.id === assistantId
-                    ? {
-                        ...item,
-                        id: data.message_id as string,
-                        provider: (data.provider as string) ?? provider,
-                        model_id: (data.model as string) ?? model,
-                        created_at: new Date().toISOString(),
-                        status_text: undefined,
-                        switched_note:
-                          switchedFrom
-                            ? `Auto-switched from ${switchedFrom}${switchReason ? ` (${switchReason})` : ''}`
-                            : item.switched_note,
-                      }
-                    : item,
-                ),
+                current.map((item) => {
+                  if (isBlocked && item.id === userMsgId) {
+                    return { ...item, id: `blocked-${userMsgId}` };
+                  }
+                  if (item.id === assistantId) {
+                    return {
+                      ...item,
+                      id: data.message_id as string,
+                      provider: (data.provider as string) ?? provider,
+                      model_id: (data.model as string) ?? model,
+                      created_at: new Date().toISOString(),
+                      status_text: undefined,
+                      switched_note:
+                        switchedFrom
+                          ? `Auto-switched from ${switchedFrom}${switchReason ? ` (${switchReason})` : ''}`
+                          : item.switched_note,
+                    };
+                  }
+                  return item;
+                }),
               );
             }
           } else if (eventName === 'response.error') {
@@ -483,7 +511,6 @@ export function Chatbot() {
         },
       );
       await refreshConversations();
-      void refetchCacheStats();
     } catch (cause) {
       const isTimeout3m = controller.signal.aborted && controller.signal.reason === 'timeout_3m';
       if (!isTimeout3m && cause instanceof DOMException && cause.name === 'AbortError') return;
@@ -513,7 +540,6 @@ export function Chatbot() {
         setActiveId(latestConversationId);
       }
       dispatch(cacheApi.util.invalidateTags(['CacheEntries', 'CacheStats']));
-      void refetchCacheStats();
     }
   };
 
@@ -555,15 +581,16 @@ export function Chatbot() {
     }
   };
 
-  const splitSpeechChunks = (text: string): string[] => {
+  const splitSpeechChunks = (text: string, firstChunkMax = 450, nextChunkMax = 1800): string[] => {
     const cleaned = text.trim();
     if (!cleaned) return [];
-    if (cleaned.length <= 200) return [cleaned];
+    if (cleaned.length <= firstChunkMax) return [cleaned];
     const sentences = cleaned.split(/(?<=[.!?।])\s+/).filter(Boolean);
     const chunks: string[] = [];
     let current = '';
-    const maxLen = 200;
+    const activeLimit = () => (chunks.length === 0 ? firstChunkMax : nextChunkMax);
     for (const s of sentences) {
+      const maxLen = activeLimit();
       if (s.length > maxLen) {
         if (current) {
           chunks.push(current.trim());
@@ -572,10 +599,11 @@ export function Chatbot() {
         const words = s.split(/\s+/);
         let part = '';
         for (const w of words) {
+          const limit = activeLimit();
           const candidate = part ? `${part} ${w}` : w;
-          if (candidate.length > maxLen) {
+          if (candidate.length > limit) {
             if (part) chunks.push(part.trim());
-            part = w.slice(0, maxLen);
+            part = w.slice(0, limit);
           } else {
             part = candidate;
           }
@@ -589,51 +617,57 @@ export function Chatbot() {
       }
     }
     if (current.trim()) chunks.push(current.trim());
-    return chunks.length > 0 ? chunks : [cleaned.slice(0, 200)];
+    return chunks.length > 0 ? chunks : [cleaned.slice(0, firstChunkMax)];
   };
 
-  const fetchTtsUrl = async (chunk: string, voice: string): Promise<string> => {
+  const fetchTtsUrl = async (chunk: string): Promise<string> => {
     const res = await fetch(`${API}/chat/tts`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: chunk, voice }),
+      body: JSON.stringify({ text: chunk }),
     });
     if (!res.ok) throw new Error(`TTS failed (${res.status})`);
     const buf = await res.arrayBuffer();
     if (!buf || buf.byteLength < 44) {
       throw new Error('Empty audio payload from TTS endpoint');
     }
-    const mime = res.headers.get('content-type') || 'audio/wav';
+    const mime = res.headers.get('content-type') || 'audio/mpeg';
     const blob = new Blob([buf], { type: mime });
-    return URL.createObjectURL(blob);
+    const url = URL.createObjectURL(blob);
+    ttsObjectUrlsRef.current.add(url);
+    return url;
   };
 
-  const speakWithBrowserFallback = (messageId: string, speakText: string) => {
+  const speakWithBrowserFallback = (messageId: string, speakText: string, sessionId: number) => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(speakText);
       const voices = window.speechSynthesis.getVoices();
       const naturalVoice =
         voices.find((v) => /aria/i.test(v.name) && /^en/i.test(v.lang)) ||
         voices.find((v) => /neerja|jenny|female|zira|samantha|victoria|karen|moira|tessa/i.test(v.name) && /natural|online|google/i.test(v.name) && /^en/i.test(v.lang)) ||
         voices.find((v) => /natural|online|google/i.test(v.name) && /^en/i.test(v.lang)) ||
         voices.find((v) => /^en/i.test(v.lang));
-      if (naturalVoice) utterance.voice = naturalVoice;
-      utterance.volume = 1.0;
-      utterance.rate = 0.95;
-      utterance.pitch = 1.0;
-      setPlayingId(messageId);
-      setPaused(false);
-      utterance.onend = () => {
-        setPlayingId(null);
-        setPaused(false);
+      // Chunk browser speech into ~220-char segments to avoid Chrome's 15s speechSynthesis cutoff
+      const segments = splitSpeechChunks(speakText, 220, 220);
+      const speakSegment = (idx: number) => {
+        if (ttsSessionRef.current !== sessionId || idx >= segments.length) {
+          if (ttsSessionRef.current === sessionId) setPlayingId(null);
+          return;
+        }
+        const utterance = new SpeechSynthesisUtterance(segments[idx]);
+        if (naturalVoice) utterance.voice = naturalVoice;
+        utterance.volume = 1.0;
+        utterance.rate = 0.95;
+        utterance.pitch = 1.0;
+        utterance.onend = () => speakSegment(idx + 1);
+        utterance.onerror = () => {
+          if (ttsSessionRef.current === sessionId) setPlayingId(null);
+        };
+        setPlayingId(messageId);
+        window.speechSynthesis.speak(utterance);
       };
-      utterance.onerror = () => {
-        setPlayingId(null);
-        setPaused(false);
-      };
-      window.speechSynthesis.speak(utterance);
+      speakSegment(0);
     } else {
       setError('Text-to-speech is not supported in this browser.');
     }
@@ -674,30 +708,26 @@ export function Chatbot() {
       if (ttsSessionRef.current !== sessionId || index >= urls.length) {
         if (ttsSessionRef.current === sessionId) {
           setPlayingId(null);
-          setPaused(false);
         }
         return;
       }
       sharedAudio.onended = () => playUrlsSequentially(urls, index + 1);
       sharedAudio.onerror = () => {
         if (ttsSessionRef.current === sessionId) {
-          speakWithBrowserFallback(item.id, speakText);
+          speakWithBrowserFallback(item.id, speakText, sessionId);
         }
       };
       sharedAudio.src = urls[index];
       sharedAudio.load();
       setPlayingId(item.id);
-      setPaused(false);
       void sharedAudio.play().catch(() => {
         if (ttsSessionRef.current === sessionId) {
-          speakWithBrowserFallback(item.id, speakText);
+          speakWithBrowserFallback(item.id, speakText, sessionId);
         }
       });
     };
 
-    const activeVoice = 'diana';
-    const ttsCacheKey = `${item.id}:${activeVoice}`;
-    const cachedUrls = ttsCacheRef.current.get(ttsCacheKey);
+    const cachedUrls = ttsCacheRef.current.get(item.id);
     if (cachedUrls && cachedUrls.length > 0) {
       playUrlsSequentially(cachedUrls, 0);
       return;
@@ -706,9 +736,10 @@ export function Chatbot() {
     setTtsLoadingId(item.id);
     try {
       const chunks = splitSpeechChunks(speakText);
-      const firstUrl = await fetchTtsUrl(chunks[0], activeVoice);
+      const firstUrl = await fetchTtsUrl(chunks[0]);
       if (ttsSessionRef.current !== sessionId) {
         URL.revokeObjectURL(firstUrl);
+        ttsObjectUrlsRef.current.delete(firstUrl);
         return;
       }
       setTtsLoadingId(null);
@@ -721,7 +752,7 @@ export function Chatbot() {
         if (urls[idx]) return Promise.resolve(urls[idx]);
         const existing = inflight.get(idx);
         if (existing) return existing;
-        const p = fetchTtsUrl(chunks[idx], activeVoice).then((u) => {
+        const p = fetchTtsUrl(chunks[idx]).then((u) => {
           urls[idx] = u;
           inflight.delete(idx);
           return u;
@@ -740,42 +771,42 @@ export function Chatbot() {
           if (ttsSessionRef.current !== sessionId) return;
           const nextIdx = idx + 1;
           if (nextIdx >= chunks.length) {
-            ttsCacheRef.current.set(ttsCacheKey, urls);
+            ttsCacheRef.current.set(item.id, urls);
             setPlayingId(null);
-            setPaused(false);
             return;
           }
           try {
             await ensureChunk(nextIdx);
           } catch {
-            setPlayingId(null);
-            setPaused(false);
+            // Seamlessly finish remaining text via Tier-2 browser speech if a later Edge TTS chunk fails
+            if (ttsSessionRef.current === sessionId) {
+              speakWithBrowserFallback(item.id, chunks.slice(nextIdx).join(' '), sessionId);
+            }
             return;
           }
           void playWithPrefetch(nextIdx);
         };
         sharedAudio.onerror = () => {
           if (ttsSessionRef.current === sessionId) {
-            speakWithBrowserFallback(item.id, speakText);
+            speakWithBrowserFallback(item.id, chunks.slice(idx).join(' '), sessionId);
           }
         };
         sharedAudio.src = urls[idx];
         sharedAudio.load();
         setPlayingId(item.id);
-        setPaused(false);
         await sharedAudio.play();
       };
 
       await playWithPrefetch(0);
       return;
     } catch {
-      // Fall back to browser speech synthesis if Groq/Gemini TTS fails or playback is blocked
+      // Tier 2 unlimited fallback: browser Web Speech API if Edge Neural TTS fails or playback is blocked
     } finally {
       setTtsLoadingId(null);
     }
 
     if (ttsSessionRef.current === sessionId) {
-      speakWithBrowserFallback(item.id, speakText);
+      speakWithBrowserFallback(item.id, speakText, sessionId);
     }
   };
 
@@ -786,7 +817,6 @@ export function Chatbot() {
       audioRef.current.currentTime = 0;
     }
     setPlayingId(null);
-    setPaused(false);
   };
 
   const handleModelChange = (newProvider: string, newModelId: string) => {
@@ -805,7 +835,9 @@ export function Chatbot() {
       const cacheLabel =
         assistantMsg?.cache_telemetry?.hit
           ? `${assistantMsg.cache_telemetry.cache_source ?? 'Hit'} · ${assistantMsg.cache_telemetry.lookup_latency_ms}ms`
-          : null;
+          : assistantMsg?.cache_telemetry?.cache_type === 'fetch'
+            ? `Fetch · ${assistantMsg.cache_telemetry.cache_source ?? 'Live MCP'}`
+            : null;
       turns.push({
         id: msg.id,
         index: turns.length,
@@ -814,9 +846,7 @@ export function Chatbot() {
           ? flattenMarkdownSnippet(assistantMsg.content || assistantMsg.status_text || '')
           : '',
         isStreaming: Boolean(sending && assistantMsg && !assistantMsg.content),
-        isError: Boolean(assistantMsg?.is_error),
         modelId: assistantMsg?.model_id ?? msg.model_id ?? null,
-        provider: assistantMsg?.provider ?? msg.provider ?? null,
         cacheLabel,
       });
     }
@@ -1045,6 +1075,15 @@ export function Chatbot() {
                           </span>
                         </div>
                       )}
+                      {item.cache_telemetry && !item.cache_telemetry.hit && item.cache_telemetry.cache_type === 'fetch' && (
+                        <div
+                          className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+                          style={{ backgroundColor: 'rgba(14, 165, 233, 0.14)', color: '#0284c7' }}
+                        >
+                          <Globe className="h-3 w-3" />
+                          <span>FETCH · {item.cache_telemetry.cache_source ?? 'Live MCP'}</span>
+                        </div>
+                      )}
                       {item.cache_telemetry?.effective_response_language && (
                         <div className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--muted)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
                           <span>{item.cache_telemetry.effective_response_language}</span>
@@ -1138,12 +1177,12 @@ export function Chatbot() {
                           type="button"
                           disabled={ttsLoadingId === item.id}
                           onClick={() => void toggleSpeech(item)}
-                          title={playingId === item.id ? (paused ? 'Resume audio' : 'Pause audio') : 'Read aloud'}
+                          title={playingId === item.id ? 'Stop audio' : 'Read aloud'}
                           className="rounded-lg p-1.5 transition hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
                         >
                           {ttsLoadingId === item.id ? (
                             <LoaderCircle className="h-3.5 w-3.5 animate-spin text-[var(--accent)]" />
-                          ) : playingId === item.id && !paused ? (
+                          ) : playingId === item.id ? (
                             <Pause className="h-3.5 w-3.5 text-[var(--accent)]" />
                           ) : (
                             <Volume2 className="h-3.5 w-3.5" />

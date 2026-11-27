@@ -129,7 +129,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </span>
             <span className="hidden min-w-0 sm:block">
               <span className="block text-sm font-semibold tracking-tight text-[var(--foreground)]">
-                Vector Cache
+                VectoCore
               </span>
             </span>
           </Link>

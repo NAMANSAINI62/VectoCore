@@ -28,15 +28,6 @@ export interface CacheEntriesResponse {
   total_pages: number;
 }
 
-export interface RelatedCacheMatchItem {
-  entry_id: string;
-  query: string;
-  similarity_score: number;
-  detected_language: string;
-  model: string;
-  hit_count: number;
-}
-
 export interface SemanticMatchCandidateItem {
   rank?: number | null;
   cache_entry_id?: string | null;
@@ -70,7 +61,7 @@ export interface TelemetryItem {
   id: string;
   request_id?: string;
   query_preview: string;
-  cache_status: 'exact_hit' | 'semantic_hit' | 'miss' | 'bypass' | 'error' | string;
+  cache_status: 'exact_hit' | 'semantic_hit' | 'miss' | 'fetch' | 'blocked' | 'error' | string;
   provider: string;
   model: string;
   detected_language: string;
@@ -84,7 +75,6 @@ export interface TelemetryItem {
   matched_entry_id?: string | null;
   matched_query?: string | null;
   response_preview?: string | null;
-  related_candidates?: RelatedCacheMatchItem[] | null;
   error_type?: string | null;
   error_message?: string | null;
   semantic_match_insights?: SemanticMatchInsights | null;
@@ -95,6 +85,8 @@ export interface CacheStatsResponse {
   total_requests: number;
   cache_hits: number;
   cache_misses: number;
+  blocked_requests?: number;
+  fetch_requests?: number;
   hit_rate_pct: number;
   exact_hits: number;
   semantic_hits: number;
@@ -178,12 +170,6 @@ export interface ConfiguredModel {
   provider: string;
 }
 
-export interface ConfiguredProvider {
-  id: string;
-  configured: boolean;
-  models: string[];
-}
-
 export interface CacheStatsParams {
   days?: number;
   start_date?: string;
@@ -205,7 +191,7 @@ export const cacheApi = createApi({
   keepUnusedDataFor: 300,
   refetchOnFocus: true,
   refetchOnReconnect: true,
-  tagTypes: ['CacheEntries', 'CacheStats', 'CacheSettings', 'Models', 'Providers'],
+  tagTypes: ['CacheEntries', 'CacheStats', 'CacheSettings', 'Models'],
   endpoints: (builder) => ({
     getCacheEntries: builder.query<
       CacheEntriesResponse,
@@ -248,11 +234,6 @@ export const cacheApi = createApi({
       providesTags: ['Models'],
     }),
 
-    getProviders: builder.query<ConfiguredProvider[], void>({
-      query: () => 'providers',
-      providesTags: ['Providers'],
-    }),
-
     getCacheSettings: builder.query<CacheSettings, void>({
       query: () => 'cache/settings',
       providesTags: ['CacheSettings'],
@@ -289,9 +270,7 @@ export const {
   useGetCacheEntriesQuery,
   useGetCacheStatsQuery,
   useInspectTelemetryItemQuery,
-  useLazyInspectTelemetryItemQuery,
   useGetModelsQuery,
-  useGetProvidersQuery,
   useGetCacheSettingsQuery,
   useUpdateCacheSettingsMutation,
   useDeleteCacheEntryMutation,

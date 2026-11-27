@@ -1,8 +1,6 @@
-"""Redis-backed sliding-window rate limiting, concurrency caps, abuse throttling, and judge verdict cache."""
+"""Redis-backed sliding-window rate limiting, concurrency caps, and abuse throttling."""
 
-import hashlib
-import hmac
-import json
+import inspect
 import logging
 import time
 import uuid
@@ -26,7 +24,10 @@ class RedisRateLimiter:
     async def _client(self) -> Any:
         if self._redis is not None:
             return self._redis
-        return await get_redis_client()
+        client = get_redis_client()
+        if inspect.isawaitable(client):
+            client = await client
+        return client
 
     async def _check_sliding_window(self, r: Any, key: str, limit: int, window_sec: int = 60) -> tuple[bool, int]:
         now = time.time()
@@ -156,34 +157,3 @@ class RedisRateLimiter:
                 )
                 return
             raise HTTPException(status_code=503, detail="Rate limiter unavailable.")
-
-    def _judge_cache_key(self, redacted_text: str, policy_version: str) -> str:
-        digest = hmac.new(
-            self.settings.GUARDRAILS_HASH_KEY.encode("utf-8"),
-            (redacted_text or "").encode("utf-8", errors="replace"),
-            hashlib.sha256,
-        ).hexdigest()
-        return f"guardrails:judge:{policy_version}:{digest}"
-
-    async def get_cached_judge_verdict(self, redacted_text: str, policy_version: str) -> dict[str, Any] | None:
-        try:
-            r = await self._client()
-            raw = await r.get(self._judge_cache_key(redacted_text, policy_version))
-            if raw:
-                return json.loads(raw)
-        except Exception:
-            pass
-        return None
-
-    async def set_cached_judge_verdict(
-        self, redacted_text: str, policy_version: str, payload: dict[str, Any]
-    ) -> None:
-        try:
-            r = await self._client()
-            await r.set(
-                self._judge_cache_key(redacted_text, policy_version),
-                json.dumps(payload),
-                ex=self.settings.RATE_LIMIT_JUDGE_CACHE_TTL_SEC,
-            )
-        except Exception:
-            pass

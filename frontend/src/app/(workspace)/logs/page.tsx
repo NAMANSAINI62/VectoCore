@@ -12,7 +12,6 @@ import {
   Activity,
   BarChart3,
   Clock,
-  RefreshCw,
   ScrollText,
   Search,
   X,
@@ -33,7 +32,7 @@ const STATUS_FILTERS = [
   { id: 'exact_hit', label: 'Exact Hit' },
   { id: 'semantic_hit', label: 'Semantic Hit' },
   { id: 'miss', label: 'Miss' },
-  { id: 'bypass', label: 'Bypass' },
+  { id: 'fetch', label: 'Fetch' },
   { id: 'blocked', label: 'Blocked' },
   { id: 'error', label: 'Error' },
 ] as const;
@@ -49,11 +48,10 @@ export default function LogsPage() {
     }),
     [selectedDays, appliedCustom],
   );
-  const { data: stats, isLoading, isError, isFetching, refetch } = useGetCacheStatsQuery(
+  const { data: stats, isLoading, isError } = useGetCacheStatsQuery(
     queryParams,
     { pollingInterval: 30000, skipPollingIfUnfocused: true, refetchOnMountOrArgChange: 15 }
   );
-  const [refreshSpin, setRefreshSpin] = useState(false);
   const [showCharts, setShowCharts] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');

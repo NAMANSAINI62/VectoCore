@@ -29,27 +29,10 @@ class MCPServerConfig(BaseModel):
 
 
 class MCPSettings(BaseSettings):
-    """MCP client and external web-tool settings."""
+    """MCP client configuration."""
 
     MCP_ENABLED: bool = False
     MCP_SERVERS_CONFIG_PATH: str = ""
-
-    # Web Fetch limits
-    WEB_FETCH_TIMEOUT_SEC: float = 10.0
-    WEB_FETCH_MAX_BYTES: int = 1_048_576  # 1 MB
-    WEB_FETCH_MAX_REDIRECTS: int = 3
-    WEB_FETCH_CACHE_TTL_SEC: int = 300
-    WEB_FETCH_ALLOWLIST_DOMAINS: str = ""
-    WEB_FETCH_BLOCKLIST_DOMAINS: str = ""
-    WEB_FETCH_USER_AGENT: str = "VectoCoreBot/1.0 (+https://github.com/NAMANSAINI62/VectoCore)"
-
-    # Web Search (Tavily)
-    WEB_SEARCH_PROVIDER: Literal["tavily"] = "tavily"
-    WEB_SEARCH_API_KEY_ENV: str = "TAVILY_API_KEY"
-    WEB_SEARCH_MAX_RESULTS: int = 5
-    WEB_SEARCH_MAX_QUERY_CHARS: int = 200
-    WEB_SEARCH_TIMEOUT_SEC: float = 8.0
-    WEB_SEARCH_CACHE_TTL_SEC: int = 900
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_PATH) if _ENV_PATH.exists() else ".env",

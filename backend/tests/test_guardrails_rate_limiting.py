@@ -1,4 +1,4 @@
-"""Unit tests for Job 4: Redis sliding-window rate limiter, concurrency cap, Redis-down fail-open, deadline, and judge cache."""
+"""Unit tests for Job 4: Redis sliding-window rate limiter, concurrency cap, sync client handling, and Redis-down fail-open."""
 
 import asyncio
 import time
@@ -128,15 +128,14 @@ def test_rate_limiter_redis_down_fails_open_with_warning(caplog: pytest.LogCaptu
     asyncio.run(_run())
 
 
-def test_judge_verdict_redis_cache_roundtrip() -> None:
+def test_rate_limiter_accepts_synchronous_get_redis_client(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _run() -> None:
         fake = FakeRedis()
-        rl = RedisRateLimiter(settings=GuardrailsSettings(), redis_client=fake)
-        await rl.set_cached_judge_verdict("hello world", "v1.0", {"decision": "ALLOW"})
-        hit = await rl.get_cached_judge_verdict("hello world", "v1.0")
-        miss = await rl.get_cached_judge_verdict("hello world", "v2.0")
-        assert hit == {"decision": "ALLOW"}
-        assert miss is None
+        monkeypatch.setattr("app.guardrails.rate_limiter.get_redis_client", lambda: fake)
+        rl = RedisRateLimiter(settings=GuardrailsSettings(RATE_LIMIT_USER_RPM=2, RATE_LIMIT_IP_RPM=10))
+        await rl.check_and_acquire_stream("u-sync", "127.0.0.1")
+        await rl.release_stream("u-sync")
+        assert len(fake.zsets.get("rl:user:u-sync", {})) == 1
 
     asyncio.run(_run())
 
