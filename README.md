@@ -55,15 +55,15 @@ VectoCore is a single gateway that solves all three.
 | Capability | How it works |
 |---|---|
 | **Two-tier semantic cache** | Tier 1 is an exact-match cache in Redis (about 50 ms), plus in-conversation exact caching for repeated follow-ups. Tier 2 is a vector-similarity search in PostgreSQL with `pgvector` (cosine similarity of `0.82` or higher, 48-hour default TTL with hourly expired-entry cleanup). Only a real miss reaches the LLM. |
-| **Authentication** | Passwordless **Google OAuth 2.0**, **6-digit Email OTP** (HMAC-hashed, 5-minute TTL, async SMTP delivery), **Password Reset via OTP**, and email/password login with `HttpOnly` JWT + rotating refresh-token sessions. |
+| **Authentication** | Passwordless **Google OAuth 2.0**, **6-digit Email OTP** (HMAC-hashed, 5-minute TTL, delivered via **Brevo HTTPS API** or **SMTP STARTTLS**), **OTP Password Reset**, and email/password login with `HttpOnly` JWT + rotating refresh-token sessions. |
 | **Cross-language cache hits** | A question asked in French or Spanish can hit an English cached answer when the user wants English. An explicit request for another language bypasses the cache on purpose. |
 | **Input guardrails** | Unicode normalization, URL masking, an LLM prompt-injection judge, a hosted safety classifier, PII detection (Aadhaar, phone) and secret scanning. Unsafe requests are blocked before the LLM or cache is touched. |
 | **Output guardrails** | Canary-token, secret, content-safety and PII scan of the model's reply before it is streamed or cached. |
 | **Rate limiting** | Redis sliding windows per user and per IP, a concurrent-stream cap and automatic abuse throttling. |
 | **MCP & tool-call firewall** | Deny-by-default tool firewall supporting live URL page fetch (`fetch__get_page`) and Tavily web search (`search__web_search` with news recency filtering and Result #1 → #2 → #3 fallback grounding) across all models, with strict Pydantic schemas (`extra="forbid"`), SSRF blocking, and TTL caching. |
-| **Multi-provider LLM routing & voice** | Gemini, Groq, NVIDIA NIM, Cohere and OpenRouter (11 models distributed across **Complex**, **Balanced**, and **Fast**) through LangGraph with automatic failover. Voice input uses **Groq Whisper** (`whisper-large-v3-turbo`) with Wispr Flow-style Hinglish polish (`openai/gpt-oss-20b`). Text-to-speech features a 4-tier resilient voice engine: **Microsoft Edge Neural TTS** (`en-US-EmmaMultilingualNeural`, soft, natural pauses across English/Hindi/Hinglish, 0 quota limit) as primary, with automatic failover to **Groq Orpheus** (`canopylabs/orpheus-v1-english`), **Gemini TTS** (`gemini-2.5-flash-preview-tts`), and browser **Web Speech API**. |
+| **Multi-provider LLM routing & voice** | Gemini, Groq, NVIDIA NIM, Cohere and OpenRouter (11 models across **Deep Research**, **Balanced**, and **Fast**) through LangGraph with automatic failover. Voice input uses **Groq Whisper** (`whisper-large-v3-turbo`) with Wispr Flow-style Hinglish polish (`openai/gpt-oss-20b`). Read-aloud speech uses **Microsoft Edge Neural TTS** (`en-US-EmmaMultilingualNeural`, `-4%` rate, up to `5,000` chars) with automatic browser **Web Speech API** fallback. |
 | **Strict Language Intent Routing** | Automatic language detection with strict enforcement. When a user requests an answer in a specific language (e.g. *"Answer should be in Hindi language"*), Redis exact match and pgvector semantic cache only return hits if the cached response is in that exact requested language; otherwise it queries the LLM with strict pure-script prompts. |
-| **Conversation history** | Direct PostgreSQL recent-turn loading (`CHAT_CONTEXT_MESSAGES=24`) scoped to the active conversation, keeping follow-up questions context-aware without extra summarization overhead. |
+| **Conversation history** | All conversations and completed/blocked messages are stored in PostgreSQL (`chat_conversations`, `chat_messages`) per owner so users can browse, rename, delete, and revisit past threads in the Playground sidebar (`select_prompt_configuration` uses single-turn prompts with isolated global cache matching). |
 | **Full observability & Responsive UX** | Every request is logged with latency and tokens saved. Global **Date Range Filter** with full mobile drawer/sub-bar support, smooth animated Recharts visualizations (SVG gradients, staggered easing, interactive donut slice focus), non-blocking `useTransition`/`useDeferredValue` tab & filter switches, incremental `/logs` pagination, and zero-blank-screen route skeletons. |
 | **Privacy-safe audit trail** | Security events store only keyed HMAC hashes and lengths. Raw user text is never written to the audit table. |
 
@@ -77,7 +77,7 @@ Add 3 to 5 screenshots or a short GIF to `docs/images/` and link them here. Inte
 |---|---|
 | `/login` | **Continue with Google**, **6-box Email OTP** sign-in, and **Password** mode with **Forgot Password via OTP** |
 | `/playground` | A normal question (`MISS`), the same question again (`EXACT HIT`), a reworded version (`SEMANTIC HIT`), and a URL/web search prompt |
-| `/logs` | The request table with `Exact Hit`, `Semantic Hit`, `Miss`, `Bypass`, and `Blocked` badges, plus volume & latency charts |
+| `/logs` | The request table with `Exact Hit`, `Semantic Hit`, `Miss`, `Fetch`, `Error`, and `Blocked` badges, plus volume & latency charts |
 | `/cache` | Cached entries with Inspect modal, search, language filters, and similarity / TTL settings |
 | `/analytics` | Hit rate, P50/P95/P99 latency comparison, and token savings charts |
 
@@ -108,7 +108,7 @@ flowchart TD
     L1 -->|"miss"| L2["6. pgvector HNSW Semantic Cache (2048-dim)"]
     L1 -->|"hit"| SSE["SSE Response + Telemetry"]
     L2 -->|"hit"| SSE
-    L2 -->|"miss"| CTX["7. Recent Turn Context (PostgreSQL)"]
+    L2 -->|"miss"| CTX["7. Single-Turn Prompt + Canary Selection"]
     MCP --> CTX
     CTX --> LLM["8. LangGraph Multi-Provider LLM + Failover"]
     LLM --> OG["9. Output Guardrails + Refusal/Cache Gate"]
@@ -117,10 +117,10 @@ flowchart TD
 
 **How to read it:**
 
-- **Steps 1–3 (Entry & Input Safety):** Every request is authenticated (JWT cookie / Google OAuth / Email OTP), rate-limited in Redis, normalized, and checked by input guardrails. Blocked inputs exit early via SSE (`blocked: true`) and write a hash-only row to `guardrail_events`.
-- **Step 4 (Routing):** Language overrides, context-dependent follow-ups (with exact-repeat caching within the same conversation), and live web/URL prompts bypass the global cache. URLs and live-search prompts execute **MCP tools** (`fetch__get_page` / Tavily `web_search`).
+- **Steps 1–3 (Entry & Input Safety):** Every request is authenticated (JWT cookie / Google OAuth / Email OTP), rate-limited in Redis, normalized, and checked by input guardrails. Blocked inputs exit early via SSE (`blocked: true`), save to the conversation view if active, and write a hash-only row to `guardrail_events`.
+- **Step 4 (Routing):** Explicit non-English language overrides bypass the global cache unless a language-matched variant exists, and live web/URL prompts execute **MCP tools** (`fetch__get_page` / Tavily `web_search`) cleanly separated from the cache.
 - **Steps 5–6 (Two-Tier Cache):** Cacheable queries check the Redis exact cache first (`~50 ms`), then the `pgvector` HNSW semantic cache (`2048`-dim). Hits return immediately with `0 ms` LLM time.
-- **Steps 7–9 (Context, Generation & Output Safety):** Misses and tool-augmented requests load recent conversation turns from PostgreSQL, stream through LangGraph multi-provider routing with automatic failover, and pass output guardrails + the refusal gate before being cached and logged.
+- **Steps 7–9 (Prompt Selection, Generation & Output Safety):** Misses and tool-augmented requests select the guarded single-turn prompt with runtime canary (`select_prompt_configuration`), stream through LangGraph multi-provider routing with automatic failover, and pass output guardrails + the refusal gate before being cached and persisted to PostgreSQL.
 
 ---
 
@@ -137,7 +137,7 @@ Every request to `POST /api/v1/chat/completions` goes through these steps in ord
 | **5** | **Language, follow-up & live-web check** | Decides whether to bypass the cache (non-English answer requested, context-dependent follow-up such as `"elaborate"`, or live URL / web-search intent). | bypass to step 8 |
 | **6** | **Redis exact cache** | Normalized query lookup, local in-process cache first, then Redis. About 30 to 50 ms. | Exact hit |
 | **7** | **pgvector semantic cache** | The query is embedded and searched by cosine similarity. A hit must also pass intent, depth, entity and policy-version checks. | Semantic hit |
-| **8** | **Context, MCP tools & LangGraph LLM** | `prepare_context` loads recent completed turns (`CHAT_CONTEXT_MESSAGES`) from PostgreSQL. `tools_stage` runs allowlisted MCP tools (`fetch__get_page`, `search__web_search` with Result #1 → #2 → #3 fallback grounding) or function tools when needed across all models, then LangGraph streams the response with automatic provider failover. | none |
+| **8** | **Prompt, MCP tools & LangGraph LLM** | `select_prompt_configuration` builds the single-turn system prompt + runtime canary marker. `tools_stage` runs allowlisted MCP tools (`fetch__get_page`, `search__web_search` with Result #1 → #2 → #3 fallback grounding) across all models, then `generate_response` streams through LangGraph with automatic provider failover. | none |
 | **9** | **Output guardrails** | The full reply is scanned for the canary token, secrets, unsafe content and PII before it is streamed or cached. | Reply replaced (`enforce` mode) |
 | **10** | **Save and stream** | Safe answers are stored in Redis and `pgvector`, the reply streams to the browser over SSE, and telemetry is written. | none |
 
@@ -168,7 +168,7 @@ Every layer runs in one of three modes, set in `backend/.env`.
 | `enforce` | Yes | Yes | Yes |
 
 - **Why shadow mode exists:** it lets you run a new detector on real traffic, count false positives and tune it before it can block a real user.
-- **Current defaults:** `input` and `pii` layers in `enforce`, `output` layer in `shadow`.
+- **Code defaults vs sample config:** All layers default to `shadow` in `GuardrailsSettings`, while `backend/.env.example` configures `input`, `pii`, `output`, `cache`, and `tool` to `enforce`.
 
 ### 6.3 Fail-closed design
 
@@ -247,7 +247,7 @@ Implemented in [`backend/app/guardrails/rate_limiter.py`](backend/app/guardrails
 | **Requests per minute per IP** | `60` | `RATE_LIMIT_IP_RPM` |
 | **Concurrent streams per user** | `2` | `RATE_LIMIT_USER_CONCURRENT_STREAMS` |
 | **Auth endpoints** (`/login`, `/register`, `/otp/*`, `/password-otp/*`) | `5` req / min per IP | `RedisRateLimiter.check_endpoint_limit` |
-| **Edge Neural TTS** (`/chat/tts`) | `30` req / min per user | `RedisRateLimiter.check_endpoint_limit` |
+| **Edge Neural TTS** (`/chat/tts`) | `60` req / min per user | `RedisRateLimiter.check_endpoint_limit` |
 | **Groq Whisper STT & Voice Polish** (`/chat/transcribe`, `/chat/voice-polish`) | `15–30` req / min per user | `RedisRateLimiter.check_endpoint_limit` |
 | **Abuse throttle** | Repeated limit hits trigger a temporary block | automatic |
 | **Redis outage behavior** | Fail open with a logged warning | `RATE_LIMIT_FAIL_OPEN` |
@@ -263,14 +263,14 @@ The concurrent-stream slot is always released in a `finally` block, so a crashed
 | Page | Purpose |
 |---|---|
 | `/` | Overview with KPIs, speedup telemetry, 7:5 trend & hit-distribution charts, workspace shortcuts, and the **global Date Range Filter** (custom frosted-glass calendar picker bounded from `first_request_date` to today, synced app-wide). |
-| `/playground` | Chat with frosted-glass two-pane **Model Selector** (11 models across `Complex`, `Balanced`, and `Fast`), collapsible mobile-friendly sidebar, calm flat hover-preview **Timeline Scrubber** (`MessageTimelineScrubber`), markdown rendering, SSE streaming, **Groq Whisper voice input**, and **chunked Read-Aloud TTS** (`Edge Neural TTS` primary with fallback). |
-| `/logs` | Live telemetry table (up to 500 records, incrementally rendered in 50-row batches for smooth scrolling) with status filters (`All`, `Exact Hit`, `Semantic Hit`, `Miss`, `Bypass`, `Blocked`, `Error`), deferred search, volume/latency charts, and `TelemetryTraceModal` (`GET /cache/telemetry/{id}/inspect`). |
+| `/playground` | Chat with frosted-glass **Model Selector** (11 models across `Deep Research`, `Balanced`, and `Fast`), collapsible mobile-friendly sidebar, calm flat hover-preview **Timeline Scrubber** (`MessageTimelineScrubber`), markdown rendering, SSE streaming, **Groq Whisper voice input**, and **Microsoft Edge Neural TTS** with browser **Web Speech API** fallback. |
+| `/logs` | Live telemetry table (up to 500 records, incrementally rendered in 50-row batches for smooth scrolling) with status filters (`All`, `Exact Hit`, `Semantic Hit`, `Miss`, `Fetch`, `Blocked`, `Error`), deferred search, volume/latency charts, and `TelemetryTraceModal` (`GET /cache/telemetry/{id}/inspect`). |
 | `/cache` | Paginated cache entries with `250 ms` debounced search, language filters, Inspect modal, deletion, and similarity threshold / TTL settings. |
 | `/analytics` | Smooth animated hit rate (`AreaChart` gradient), donut distribution (interactive slice hover), stacked trends, latency percentiles, model efficiency, and token savings charts with `useTransition` tab switching. |
 | `/models` | Configured providers and per-model request, hit-rate, token, and latency metrics. |
 | `/settings` | Workspace & Account Settings: profile name & read-only email, security (change password, email OTP password reset, sign out of all sessions), semantic cache controls (similarity threshold `0.70–0.99`, default TTL `1–48 hours`, clear my cache with confirmation), default Playground startup model, and 5 light themes. |
 
-All workspace pages share a single 3-second `GlobalAutoSync` loop (pausing during active chat streaming/typing and on `/login` / `/register`), support 5 distinct 60-30-10 light themes (**Botanical Ink** default, **Sage Paper**, **Mocha Cream**, **Lavender Cloud**, and **Glacier Sky**) with theme-synchronized chart palettes, and use a mobile-first responsive layout (`grid-cols-7` / responsive fixed bottom navigation dock on mobile with zero horizontal scroll, `2×2` KPI card grids on small screens, and an auto-collapsing chat sidebar on `< 768px`).
+All workspace pages share a single **15-second** `GlobalAutoSync` loop (pausing on tab blur and on `/login` / `/register`), support 5 distinct 60-30-10 light themes (**Botanical Ink** default, **Sage Paper**, **Mocha Cream**, **Lavender Cloud**, and **Glacier Sky**) with theme-synchronized chart palettes, and use a mobile-first responsive layout (`grid-cols-7` / responsive fixed bottom navigation dock on mobile with zero horizontal scroll, `2×2` KPI card grids on small screens, and an auto-collapsing chat sidebar on `< 768px`).
 
 ---
 
@@ -280,7 +280,7 @@ All workspace pages share a single 3-second `GlobalAutoSync` loop (pausing durin
 |---|---|
 | **Frontend** | Next.js 15 (Turbopack), React 19, TypeScript, Redux Toolkit (RTK Query + 15s `GlobalAutoSync`), `@microsoft/fetch-event-source`, Tailwind CSS, Recharts, `react-markdown`, Lucide icons |
 | **Backend** | Python 3.12, FastAPI (with `BackgroundTasks`), Uvicorn, Pydantic v2, async SQLAlchemy (`asyncpg`), Alembic |
-| **Auth & Email** | JWT (HS256 `HttpOnly` cookies + rotating refresh-token sessions), Google OAuth 2.0 (stateless HMAC-signed `state` + `tokeninfo`), Gmail SMTP (`smtplib` STARTTLS) for 6-digit HMAC-hashed Email OTP & OTP Password Reset |
+| **Auth & Email** | JWT (HS256 `HttpOnly` cookies + rotating refresh-token sessions), Google OAuth 2.0 (stateless HMAC-signed `state` + `tokeninfo`), **Brevo HTTPS API** + **SMTP STARTTLS** fallback for 6-digit HMAC-hashed Email OTP & OTP Password Reset |
 | **Cache & Data** | Redis (exact cache, rate limits, distributed locks), PostgreSQL with `pgvector` HNSW (semantic cache, telemetry, chat history, `auth_otps`), `tiktoken` token counting |
 | **AI, Audio & MCP** | LangChain, LangGraph, Gemini, Groq (`whisper-large-v3-turbo` STT), Edge TTS (`edge-tts` neural multilingual TTS), NVIDIA NIM, Cohere, OpenRouter, NVIDIA embeddings (2048-dim), Model Context Protocol (`mcp` Python SDK over `stdio`), Tavily Search API, `httpx` |
 | **Guardrails** | NeMo Guardrails (`self check input`), Microsoft Presidio, spaCy `en_core_web_sm`, `detect-secrets`, `pybreaker`, `lingua` for language detection |
@@ -293,13 +293,13 @@ All workspace pages share a single 3-second `GlobalAutoSync` loop (pausing durin
   <img src="docs/images/data-model.jpg" alt="VectoCore data model" width="680" />
 </p>
 
-`cache_status` is one of `exact_hit`, `semantic_hit`, `miss`, `bypass`, `error`, `blocked`. Cache entries and conversations are always scoped by `owner_id`, so users never see each other's data.
+`cache_status` is one of `exact_hit`, `semantic_hit`, `miss`, `fetch`, `error`, `blocked`. Cache entries and conversations are always scoped by `owner_id`, so users never see each other's data.
 
 ---
 
 ## 13. Project structure
 
-**Repository scale:** `194` tracked files (`180` source, test, config, and documentation files excluding `package-lock.json`, `25,933` LOC).
+**Repository scale:** `194` tracked files (`180` source, test, config, and documentation files excluding `package-lock.json`, `25,978` LOC).
 
 The main folders at a glance:
 
@@ -318,36 +318,47 @@ VectoCore/
 VectoCore/
 ├── README.md
 ├── docs/
+│   ├── MCP.md
+│   ├── architecture/
+│   │   ├── README.md
+│   │   └── authentication.md
 │   └── images/
-│       └── data-model.jpg
+│       ├── data-model.jpg
+│       └── system-architecture.png
 ├── backend/
 │   ├── .env                                  # secrets and config (never committed)
 │   ├── .env.example                          # placeholder config
+│   ├── Dockerfile
+│   ├── mcp_servers.json                      # MCP stdio server definitions (fetch, search)
 │   ├── run.py                                # Uvicorn entry point (http://127.0.0.1:9417)
 │   ├── requirements.txt                      # pinned dependencies
 │   ├── pytest.ini
 │   ├── alembic.ini
 │   ├── alembic/
 │   │   ├── env.py
-│   │   └── versions/                         # migrations: create_auth_tables, create_chat_tables,
+│   │   └── versions/                         # 16 migrations: create_auth_tables, create_chat_tables,
 │   │                                         # create_chatbot_and_cache, drop_legacy_rag_storage,
 │   │                                         # add_response_variants, widen_language_columns,
 │   │                                         # add_match_insights, add_pgvector_hnsw_index,
 │   │                                         # set_nemotron_embedding_dim, drop_retired_columns,
 │   │                                         # drop_obsolete_columns, add_guardrail_events,
 │   │                                         # add_cache_policy_version, add_memory_summary,
-│   │                                         # add_oauth_and_otp
+│   │                                         # add_oauth_and_otp, sync_fetch_status_schema
 │   ├── tests/
 │   │   ├── test_cache_api.py
 │   │   ├── test_chatbot_contracts.py
 │   │   ├── test_language_and_redis.py
 │   │   ├── test_redis_exact.py
 │   │   ├── test_match_insights.py
-│   │   ├── test_short_term_memory.py        # token window, summary, isolation, cache bypass
 │   │   ├── test_mcp_and_web_tools.py        # MCP fetch/search, SSRF, tool firewall
+│   │   ├── test_guardrails_core.py
+│   │   ├── test_guardrails_detectors.py
+│   │   ├── test_guardrails_input.py
+│   │   ├── test_guardrails_output.py
+│   │   ├── test_guardrails_rate_limiting.py
+│   │   ├── test_guardrails_tools.py
 │   │   ├── test_chatbot_cache.py            # live NVIDIA embeddings
-│   │   ├── test_semantic_cache_engine.py    # live NVIDIA embeddings
-│   │   └── test_guardrails_*.py             # guardrails, rate limiter and tools tests
+│   │   └── test_semantic_cache_engine.py    # live NVIDIA embeddings
 │   └── app/
 │       ├── main.py                           # FastAPI app, lifespan, hourly expired-cache cleanup, CORS
 │       ├── api/v1/
@@ -355,7 +366,7 @@ VectoCore/
 │       │   └── endpoints/
 │       │       ├── auth.py                   # register, login, Google OAuth, Email OTP, OTP password reset
 │       │       ├── users.py                  # profile
-│       │       ├── chatbot.py                # /chat/completions (SSE), conversations
+│       │       ├── chatbot.py                # /chat/completions (SSE), /chat/transcribe, /chat/tts, conversations
 │       │       ├── cache.py                  # stats, entries, settings, trace inspect
 │       │       └── health.py                 # health and readiness
 │       ├── cache/
@@ -383,7 +394,11 @@ VectoCore/
 │       │   ├── lifecycle.py                  # startup self-tests, health state, circuit breakers
 │       │   └── events.py                     # structured logs and hash-only audit events
 │       ├── llm/
-│       │   └── registry.py                   # providers, models, tool-capability map
+│       │   └── registry.py                   # providers, models, tier & failover routing
+│       ├── mcp/
+│       │   ├── client_manager.py             # persistent stdio MCP sessions (fetch, search)
+│       │   ├── config.py, registry.py
+│       │   └── servers/                      # web_fetch_server.py, web_search_server.py
 │       ├── models/                           # SQLAlchemy models
 │       │   ├── user.py, auth_otp.py, user_session.py
 │       │   ├── chat.py                       # conversations and messages
@@ -399,6 +414,7 @@ VectoCore/
 │           ├── token_service.py
 │           └── health_service.py
 └── frontend/
+    ├── Dockerfile, .env.example
     ├── package.json                          # Next.js 15, React 19, Tailwind, Recharts
     ├── next.config.js, tailwind.config.js, tsconfig.json
     └── src/
@@ -414,21 +430,23 @@ VectoCore/
         │       ├── models/page.tsx           # providers and models
         │       └── settings/page.tsx         # profile, security, cache controls, model, themes
         ├── components/
-        │   ├── Navbar.tsx, WorkspaceShell.tsx, ThemeProvider.tsx
+        │   ├── Navbar.tsx, WorkspaceShell.tsx, ThemeProvider.tsx, PageSkeleton.tsx
+        │   ├── analytics/                    # ChartHeader, ChartLegend, ChartTooltip, DateRangeFilter
         │   ├── logs/                         # TelemetryTraceModal and trace components
-        │   ├── dashboard/                    # KPI cards and overview
-        │   ├── charts/                       # hit rate, latency, tokens, volume charts
-        │   └── ui/                           # Button, Card, Input
+        │   ├── dashboard/                    # KPI cards, hero, and quick nav
+        │   ├── charts/                       # 10 memoized animated Recharts + ChartContainer + chartTheme
+        │   └── ui/                           # Button, FloatingLabelInput, PasswordStrengthMeter, PinCodeInput
         ├── features/
-        │   ├── auth/                         # login, register, session provider
+        │   ├── auth/                         # login, register, provider, service, AuthFormParts
         │   └── chatbot/
         │       ├── Chatbot.tsx               # chat state and SSE streaming
-        │       ├── AIChatInput.tsx           # composer and model selector
+        │       ├── AIChatInput.tsx           # composer and model selector trigger
         │       ├── ChatHistorySidebar.tsx    # conversation list
         │       ├── MessageTimelineScrubber.tsx
-        │       ├── ModelSelector.tsx
+        │       ├── ModelSelector.tsx         # two-pane tier selector (Deep Research, Balanced, Fast)
         │       └── chatStream.ts             # SSE parsing
-        └── store/                            # Redux store, dateRangeSlice, and cache API slice
+        ├── lib/                              # apiClient.ts, languages.ts, preferences.ts, utils.ts
+        └── store/                            # Redux store, dateRangeSlice, and cacheApi slice
 ```
 
 </details>
@@ -457,8 +475,8 @@ cd VectoCore
 Create a PostgreSQL database and enable `pgvector`:
 
 ```sql
-CREATE DATABASE vector_cache;
-\c vector_cache
+CREATE DATABASE semantic_cache_db;
+\c semantic_cache_db
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
@@ -514,57 +532,91 @@ Open `http://localhost:4317`, register an account, log in and go to `/playground
 
 ## 15. Configuration reference
 
-All secrets live in `backend/.env`. Values below are placeholders.
+All secrets live in `backend/.env` (see [`backend/.env.example`](backend/.env.example)). Values below are non-secret configuration defaults; use `APP_ENV=production` and `COOKIE_SECURE=true` for HTTPS production deployments (set `APP_ENV=development` and `COOKIE_SECURE=false` when testing locally over `http://localhost`).
 
 ```env
 # App and security
-APP_ENV=development
-SECRET_KEY=change-me
-JWT_SECRET_KEY=change-me
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=7
-FRONTEND_URL=http://localhost:4317
-CORS_ORIGINS=http://localhost:4317
+APP_ENV=production
+SECRET_KEY=change-this-secret-key-in-production-min-32-chars
+PORT=9417
+PYTHONDONTWRITEBYTECODE=1
 
-# Data stores
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/vector_cache
-REDIS_URL=redis://localhost:6379/0
+# Data stores (postgres:// and ?sslmode=require auto-convert for asyncpg)
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/semantic_cache_db
+REDIS_URL=redis://127.0.0.1:6379/0
+REDIS_SOCKET_TIMEOUT=2.0
+REDIS_CONNECT_TIMEOUT=2.0
 
-# LLM and embedding providers (add the ones you use)
-GEMINI_API_KEY=
+# LLM and embedding providers (add keys for providers you enable)
 GROQ_API_KEY=
-NVIDIA_API_KEY=
-NVIDIA_EMBED_API_KEY=
-OPENROUTER_API_KEY=
+GROQ_DEFAULT_MODEL=openai/gpt-oss-20b
+GROQ_AVAILABLE_MODELS=openai/gpt-oss-20b,openai/gpt-oss-120b
+GROQ_STT_MODEL=whisper-large-v3-turbo
+
+GEMINI_API_KEY=
+GEMINI_AVAILABLE_MODELS=gemini-3-flash-preview,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.1-flash-lite-preview,gemini-flash-lite-latest
+
 COHERE_API_KEY=
+COHERE_AVAILABLE_MODELS=command-a-03-2025
+
+NVIDIA_API_KEY=
+NVIDIA_AVAILABLE_MODELS=nvidia/nemotron-3.5-super-vl-120b-a12b,nvidia/nemotron-3.5-bolt-e4b
+NVIDIA_EMBED_API_KEY=
 EMBEDDING_MODEL_NAME=nvidia/nemotron-3.5-embed-1b
 
-# Guardrails
-GUARDRAILS_ENABLED=true
-GUARDRAILS_INPUT_MODE=enforce          # off | shadow | enforce
-GUARDRAILS_PII_MODE=enforce
-GUARDRAILS_OUTPUT_MODE=shadow
+OPENROUTER_API_KEY=
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+CHAT_AVAILABLE_MODELS=baidu/ernie-5.5-flash-preview:free
+OPENROUTER_TIMEOUT_SECONDS=180
 
-# Rate limiting
-RATE_LIMIT_USER_RPM=5
-RATE_LIMIT_IP_RPM=5
+CHAT_DEFAULT_PROVIDER=groq
 
-# Groq Audio (Voice Input STT & Fast Read-Aloud TTS)
-GROQ_STT_MODEL=whisper-large-v3-turbo
-GROQ_TTS_MODEL=canopylabs/orpheus-v1-english
-GROQ_TTS_VOICE=troy
+# JWT & Session Security (set COOKIE_SECURE=false only for local http://localhost)
+JWT_SECRET_KEY=your-super-secret-jwt-key-minimum-32-characters-long
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=10080
+REFRESH_TOKEN_EXPIRE_DAYS=7
+COOKIE_SECURE=true
+COOKIE_SAMESITE=lax
 
-# Google OAuth 2.0 & Gmail SMTP (Email OTP)
+# Domain & CORS
+FRONTEND_URL=http://localhost:4317
+CORS_ORIGINS=http://localhost:4317,http://127.0.0.1:4317
+
+# Google OAuth 2.0
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:4317/api/v1/auth/google/callback
+
+# Brevo HTTPS API / SMTP (Passwordless Email OTP & Password Reset)
+BREVO_API_KEY=
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=
 SMTP_PASSWORD=
 SMTP_FROM_EMAIL=
 SMTP_USE_TLS=true
+EMAIL_OTP_EXPIRE_MINUTES=5
+EMAIL_OTP_MAX_ATTEMPTS=5
+
+# AI Guardrails & Rate Limiting
+GUARDRAILS_ENABLED=true
+GUARDRAILS_POLICY_VERSION=v1.0
+GUARDRAILS_HASH_KEY=change-this-guardrails-hmac-key-min-16-chars
+GUARDRAILS_INPUT_MODE=enforce          # off | shadow | enforce
+GUARDRAILS_PII_MODE=enforce
+GUARDRAILS_OUTPUT_MODE=enforce
+GUARDRAILS_CACHE_MODE=enforce
+GUARDRAILS_TOOL_MODE=enforce
+GUARDRAILS_SELF_CHECK_MODEL_ID=openai/gpt-oss-20b
+GUARDRAILS_CONTENT_SAFETY_MODEL_ID=nvidia/llama-3.1-nemotron-safety-guard-8b-v3
+GUARDRAILS_SPACY_MODEL_NAME=en_core_web_sm
+GUARDRAILS_SELF_CHECK_TIMEOUT_SEC=4.0
+GUARDRAILS_CONTENT_SAFETY_TIMEOUT_SEC=10.0
+GUARDRAILS_MAX_INPUT_CHARS=25000
+RATE_LIMIT_USER_RPM=10
+RATE_LIMIT_USER_CONCURRENT_STREAMS=2
+RATE_LIMIT_IP_RPM=60
 
 # MCP Web Tools
 MCP_ENABLED=true
@@ -593,7 +645,7 @@ Base path: `/api/v1`. Interactive docs are at `http://127.0.0.1:9417/docs`.
 |---|---|---|
 | **Auth** | `POST /auth/register`, `/login`, `/refresh`, `/logout`, `/logout-all`, `/change-password`, `/otp/request`, `/otp/verify`, `/password-otp/request`, `/password-otp/reset`; `GET /auth/google/login`, `/google/callback`, `/methods`, `/me` | Account, Google OAuth, Email OTP sign-in & password reset, and single/all-session management |
 | **Users** | `PATCH /users/me` | Update authenticated user profile |
-| **Chat** | `POST /chat/completions`, `POST /chat/transcribe`, `POST /chat/voice-polish`, `POST /chat/tts` | Streaming SSE chat, Groq Whisper speech-to-text, Hinglish voice polish, and unlimited Edge Neural TTS (`en-US-EmmaMultilingualNeural`, with browser Web Speech fallback) |
+| **Chat** | `POST /chat/completions`, `POST /chat/transcribe`, `POST /chat/voice-polish`, `POST /chat/tts` | Streaming SSE chat, Groq Whisper speech-to-text, Hinglish voice polish, and Microsoft Edge Neural TTS (`en-US-EmmaMultilingualNeural`, client falls back to browser Web Speech API) |
 | **Conversations** | `GET/POST /conversations`, `GET/PATCH/DELETE /conversations/{id}` | History, ownership enforced |
 | **Models** | `GET /providers`, `GET /models` | Configured providers and models |
 | **Cache** | `GET /cache/entries`, `DELETE /cache/entries`, `DELETE /cache/entries/{id}` | Browse, clear all user entries, or remove a single cache entry |
@@ -661,8 +713,7 @@ npm run typecheck
 | **Audit events store hashes only** | Privacy by design: the audit trail cannot leak user text. |
 | **Cache write-gating and policy version** | Unsafe or old-policy answers can never be served from the cache. |
 | **Models are configuration** | Hosted model IDs get retired. A dead ID should be a config change, not a code change. |
-| **Edge Neural TTS Primary with Groq & Gemini Fallback** | Read-aloud TTS uses Microsoft Edge Neural TTS (`en-US-EmmaMultilingualNeural` at `-4%` rate) as the primary engine. Reason: it has zero quota/API key constraints, handles unbounded text lengths without hallucinating, produces natural punctuation pauses, and transitions seamlessly across English, Hindi, and Hinglish. Groq Orpheus (`canopylabs/orpheus-v1-english`) serves as secondary fallback (locked to `diana` with a 45s cooldown on 429), and Gemini TTS (`gemini-2.5-flash-preview-tts` with voice `Kore`) acts as tertiary fallback. If all remote endpoints fail, the browser's native Web Speech API kicks in. |
-| **Unbounded 200-Character Sequential Speech Chunks** | Rather than dumping long LLM responses (e.g. 2,000–10,000 chars) into one monolithic TTS call that takes 25–40s or triggers audio garbling/hallucination, text is split into sequential 200-char sentence-aligned chunks. Chunk 1 starts playing within ~1.5s, while the frontend prefetches 1 chunk ahead. No text is skipped or truncated. |
+| **Edge Neural TTS Primary with Web Speech Fallback** | Read-aloud TTS uses Microsoft Edge Neural TTS (`en-US-EmmaMultilingualNeural` at `-4%` rate, up to `5,000` characters per call, `60` req/min limit) for natural punctuation pauses across English, Hindi, and Hinglish without paid TTS API quotas. If Edge TTS is unavailable (`503`), the frontend automatically falls back to browser `window.speechSynthesis` in `~220`-character chunks to avoid Chrome cutoff limits. |
 | **Strict Language Intent Cache Isolation** | Explicit directives such as *"Answer should be in Hindi language"* are parsed by `language_service.py` to set `effective_response_language='Hindi'`. Both Redis and pgvector keys are strictly scoped by language, preventing English or Hinglish cached answers from falsely serving as hits for a Hindi prompt. |
 
 ---
@@ -690,9 +741,9 @@ The guardrail latency comes from hosted model calls. Cache hits skip the LLM and
 
 - Hinglish and Hindi accuracy of the detectors is weaker than English. The test sets for these languages are small.
 - Phone numbers and Aadhaar are **blocked** (not redacted). Email addresses are logged but not redacted.
-- Output guardrails default to `shadow` mode (log only).
+- Output guardrails default to `shadow` in code (`GuardrailsSettings`) unless set to `enforce` in `.env`.
 - Free-tier provider quotas (for example Groq) limit throughput. The guardrail judge and the chat model may share one quota.
-- Conversation context is scoped strictly to recent turns in the active conversation (no cross-conversation or long-term user profile memory yet).
+- Prompts use single-turn context (`select_prompt_configuration`) while persisted conversations (`chat_conversations`, `chat_messages`) are stored per owner for sidebar history browsing; cross-conversation long-term user profile memory is planned on the roadmap.
 - Embedding model changes require clearing the cache (different vector spaces).
 - Standalone Evals (`DeepEval`/`pytest` dataset) and RAG-as-a-tool are not implemented in the app yet.
 - Docker Compose files exist but are not yet verified for the current stack.
