@@ -64,7 +64,7 @@ VectoCore is a single gateway that solves all three.
 | **Multi-provider LLM routing & voice** | Gemini, Groq, NVIDIA NIM, Cohere and OpenRouter (11 models distributed across **Complex**, **Balanced**, and **Fast**) through LangGraph with automatic failover. Voice input uses **Groq Whisper** (`whisper-large-v3-turbo`) with Wispr Flow-style Hinglish polish (`openai/gpt-oss-20b`). Text-to-speech features a 4-tier resilient voice engine: **Microsoft Edge Neural TTS** (`en-US-EmmaMultilingualNeural`, soft, natural pauses across English/Hindi/Hinglish, 0 quota limit) as primary, with automatic failover to **Groq Orpheus** (`canopylabs/orpheus-v1-english`), **Gemini TTS** (`gemini-2.5-flash-preview-tts`), and browser **Web Speech API**. |
 | **Strict Language Intent Routing** | Automatic language detection with strict enforcement. When a user requests an answer in a specific language (e.g. *"Answer should be in Hindi language"*), Redis exact match and pgvector semantic cache only return hits if the cached response is in that exact requested language; otherwise it queries the LLM with strict pure-script prompts. |
 | **Conversation history** | Direct PostgreSQL recent-turn loading (`CHAT_CONTEXT_MESSAGES=24`) scoped to the active conversation, keeping follow-up questions context-aware without extra summarization overhead. |
-| **Full observability & Responsive UX** | Every request is logged with latency and tokens saved. Global **Date Range Filter** with full mobile drawer/sub-bar support, custom date range picking with isolated start/end bounds, zero-blank-screen route skeletons, and optimized RTK Query background polling. |
+| **Full observability & Responsive UX** | Every request is logged with latency and tokens saved. Global **Date Range Filter** with full mobile drawer/sub-bar support, smooth animated Recharts visualizations (SVG gradients, staggered easing, interactive donut slice focus), non-blocking `useTransition`/`useDeferredValue` tab & filter switches, incremental `/logs` pagination, and zero-blank-screen route skeletons. |
 | **Privacy-safe audit trail** | Security events store only keyed HMAC hashes and lengths. Raw user text is never written to the audit table. |
 
 ---
@@ -263,10 +263,10 @@ The concurrent-stream slot is always released in a `finally` block, so a crashed
 | Page | Purpose |
 |---|---|
 | `/` | Overview with KPIs, speedup telemetry, 7:5 trend & hit-distribution charts, workspace shortcuts, and the **global Date Range Filter** (custom frosted-glass calendar picker bounded from `first_request_date` to today, synced app-wide). |
-| `/playground` | Chat with frosted-glass two-pane **Model Selector** (11 models across `Complex`, `Balanced`, and `Fast`), collapsible mobile-friendly sidebar, markdown rendering, SSE streaming, **Groq Whisper voice input**, and **chunked Read-Aloud TTS** (Groq Orpheus `diana` primary with automatic Gemini TTS `Kore` fallback). |
-| `/logs` | Live telemetry table (up to 500 rows) with status filters (`All`, `Exact Hit`, `Semantic Hit`, `Miss`, `Bypass`, `Blocked`, `Error`), search, volume/latency charts, and `TelemetryTraceModal` (`GET /cache/telemetry/{id}/inspect`). |
-| `/cache` | Paginated cache entries with search, language filters, Inspect modal, deletion, and similarity threshold / TTL settings. |
-| `/analytics` | Hit rate, distribution, trend, latency (comparison, distribution, percentiles), model efficiency, request volume, and token savings charts. |
+| `/playground` | Chat with frosted-glass two-pane **Model Selector** (11 models across `Complex`, `Balanced`, and `Fast`), collapsible mobile-friendly sidebar, calm flat hover-preview **Timeline Scrubber** (`MessageTimelineScrubber`), markdown rendering, SSE streaming, **Groq Whisper voice input**, and **chunked Read-Aloud TTS** (`Edge Neural TTS` primary with fallback). |
+| `/logs` | Live telemetry table (up to 500 records, incrementally rendered in 50-row batches for smooth scrolling) with status filters (`All`, `Exact Hit`, `Semantic Hit`, `Miss`, `Bypass`, `Blocked`, `Error`), deferred search, volume/latency charts, and `TelemetryTraceModal` (`GET /cache/telemetry/{id}/inspect`). |
+| `/cache` | Paginated cache entries with `250 ms` debounced search, language filters, Inspect modal, deletion, and similarity threshold / TTL settings. |
+| `/analytics` | Smooth animated hit rate (`AreaChart` gradient), donut distribution (interactive slice hover), stacked trends, latency percentiles, model efficiency, and token savings charts with `useTransition` tab switching. |
 | `/models` | Configured providers and per-model request, hit-rate, token, and latency metrics. |
 | `/settings` | Workspace & Account Settings: profile name & read-only email, security (change password, email OTP password reset, sign out of all sessions), semantic cache controls (similarity threshold `0.70–0.99`, default TTL `1–48 hours`, clear my cache with confirmation), default Playground startup model, and 5 light themes. |
 
@@ -298,6 +298,8 @@ All workspace pages share a single 3-second `GlobalAutoSync` loop (pausing durin
 ---
 
 ## 13. Project structure
+
+**Repository scale:** `194` tracked files (`180` source, test, config, and documentation files excluding `package-lock.json`, `25,933` LOC).
 
 The main folders at a glance:
 
@@ -676,6 +678,7 @@ Measured on a developer laptop (Windows, 7.7 GB RAM, single Uvicorn process). Tr
 | **Parallel input detectors (judge and safety model)** | about 0.5 s median on normal prompts, with a tail of about 2.5 s |
 | **Output safety check** | about 1 s median per uncached reply |
 | **Local PII and secret checks** | tens of milliseconds |
+| **Dashboard UI & chart rendering** | `React.memo` on all 10 charts, `useTransition` tab switching, `useDeferredValue` search, `50`-row incremental `/logs` batches, `250 ms` debounced `/cache` search, and GPU-composited route/chart animations |
 
 The guardrail latency comes from hosted model calls. Cache hits skip the LLM and the output safety call, which is where most of the saving comes from. Detector accuracy figures from early spikes used very small test sets and are not published here.
 
