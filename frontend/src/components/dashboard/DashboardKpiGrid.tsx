@@ -48,8 +48,8 @@ export function DashboardKpiGrid({ stats, isLoading }: DashboardKpiGridProps) {
         </div>
         <div className="space-y-1.5">
           <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-[var(--muted)]">
-            <div style={{ width: `${exactShare}%`, backgroundColor: 'var(--chart-exact)' }} />
-            <div style={{ width: `${totalHits > 0 ? 100 - exactShare : 0}%`, backgroundColor: 'var(--chart-semantic)' }} />
+            <div className="transition-[width] duration-700 ease-out" style={{ width: `${exactShare}%`, backgroundColor: 'var(--chart-exact)' }} />
+            <div className="transition-[width] duration-700 ease-out" style={{ width: `${totalHits > 0 ? 100 - exactShare : 0}%`, backgroundColor: 'var(--chart-semantic)' }} />
           </div>
           <p className="text-xs tabular-nums text-[var(--muted-foreground)]">
             {exactHits} exact · {semanticHits} semantic
@@ -83,8 +83,8 @@ export function DashboardKpiGrid({ stats, isLoading }: DashboardKpiGridProps) {
         </div>
         <div className="space-y-1.5">
           <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-[var(--muted)]">
-            <div style={{ width: `${inputShare}%`, backgroundColor: 'var(--chart-input)' }} />
-            <div style={{ width: `${totalConsumed > 0 ? 100 - inputShare : 0}%`, backgroundColor: 'var(--chart-output)' }} />
+            <div className="transition-[width] duration-700 ease-out" style={{ width: `${inputShare}%`, backgroundColor: 'var(--chart-input)' }} />
+            <div className="transition-[width] duration-700 ease-out" style={{ width: `${totalConsumed > 0 ? 100 - inputShare : 0}%`, backgroundColor: 'var(--chart-output)' }} />
           </div>
           <p className="text-xs tabular-nums text-[var(--muted-foreground)]">
             In {totalInput.toLocaleString()} · Out {totalOutput.toLocaleString()}

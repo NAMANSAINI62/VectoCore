@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { memo, useMemo, useState, useTransition } from 'react';
 import {
   Bar,
   BarChart,
@@ -16,6 +16,7 @@ import {
   AXIS_TICK_STYLE,
   CHART_COLORS,
   formatLatencyMs,
+  getChartAnimationProps,
   GRID_PROPS,
 } from '@/components/charts/chartTheme';
 import { ChartLegend } from '@/components/analytics/ChartLegend';
@@ -37,7 +38,7 @@ export interface LatencyPercentileChartProps {
   isError?: boolean;
 }
 
-export function LatencyPercentileChart({
+export const LatencyPercentileChart = memo(function LatencyPercentileChart({
   p50All,
   p95All,
   p99All,
@@ -51,6 +52,7 @@ export function LatencyPercentileChart({
   isError = false,
 }: LatencyPercentileChartProps) {
   const [scope, setScope] = useState<LatencyPercentileScope>('compare');
+  const [, startTransition] = useTransition();
 
   const data = useMemo(
     () => [
@@ -91,7 +93,7 @@ export function LatencyPercentileChart({
             <button
               key={opt.id}
               type="button"
-              onClick={() => setScope(opt.id)}
+              onClick={() => startTransition(() => setScope(opt.id))}
               className={`rounded-md px-2 py-1 font-semibold transition-colors ${
                 scope === opt.id
                   ? 'bg-[var(--accent)] text-[var(--accent-foreground)]'
@@ -154,7 +156,7 @@ export function LatencyPercentileChart({
               name="Cache Hit"
               fill={CHART_COLORS.exactHit}
               radius={[4, 4, 0, 0]}
-              isAnimationActive={false}
+              {...getChartAnimationProps(0)}
             />
           )}
           {(scope === 'compare' || scope === 'all') && (
@@ -163,7 +165,7 @@ export function LatencyPercentileChart({
               name="All Requests"
               fill={CHART_COLORS.input}
               radius={[4, 4, 0, 0]}
-              isAnimationActive={false}
+              {...getChartAnimationProps(90)}
             />
           )}
           {(scope === 'compare' || scope === 'miss') && (
@@ -172,11 +174,11 @@ export function LatencyPercentileChart({
               name="Cache Miss"
               fill={CHART_COLORS.miss}
               radius={[4, 4, 0, 0]}
-              isAnimationActive={false}
+              {...getChartAnimationProps(180)}
             />
           )}
         </BarChart>
       </ResponsiveContainer>
     </ChartContainer>
   );
-}
+});

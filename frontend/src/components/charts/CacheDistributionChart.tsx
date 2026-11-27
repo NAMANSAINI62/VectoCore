@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { Layers } from 'lucide-react';
 import { ChartContainer } from '@/components/charts/ChartContainer';
-import { CHART_COLORS } from '@/components/charts/chartTheme';
+import { CHART_COLORS, getChartAnimationProps } from '@/components/charts/chartTheme';
 import { ChartLegend } from '@/components/analytics/ChartLegend';
 import { ChartTooltip } from '@/components/analytics/ChartTooltip';
 
@@ -20,7 +20,7 @@ export interface CacheDistributionChartProps {
   isError?: boolean;
 }
 
-export function CacheDistributionChart({
+export const CacheDistributionChart = memo(function CacheDistributionChart({
   exactHits,
   semanticHits,
   misses,
@@ -31,6 +31,7 @@ export function CacheDistributionChart({
   isLoading = false,
   isError = false,
 }: CacheDistributionChartProps) {
+  const [hoveredSlice, setHoveredSlice] = useState<string | null>(null);
   const data = useMemo(
     () =>
       [
@@ -89,15 +90,25 @@ export function CacheDistributionChart({
               nameKey="name"
               cx="50%"
               cy="50%"
+              startAngle={90}
+              endAngle={-270}
               innerRadius="58%"
               outerRadius="82%"
+              cornerRadius={data.length > 1 ? 5 : 0}
               paddingAngle={data.length > 1 ? 3 : 0}
               stroke="var(--card)"
               strokeWidth={2}
-              isAnimationActive={false}
+              onMouseLeave={() => setHoveredSlice(null)}
+              {...getChartAnimationProps()}
             >
               {data.map((entry) => (
-                <Cell key={entry.name} fill={entry.color} />
+                <Cell
+                  key={entry.name}
+                  fill={entry.color}
+                  fillOpacity={hoveredSlice && hoveredSlice !== entry.name ? 0.42 : 1}
+                  onMouseEnter={() => setHoveredSlice(entry.name)}
+                  style={{ transition: 'fill-opacity 180ms ease', cursor: 'pointer' }}
+                />
               ))}
             </Pie>
             <Tooltip
@@ -131,4 +142,4 @@ export function CacheDistributionChart({
       </div>
     </ChartContainer>
   );
-}
+});

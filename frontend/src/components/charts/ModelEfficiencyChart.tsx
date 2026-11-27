@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import {
   Bar,
   BarChart,
@@ -13,7 +13,13 @@ import {
 import { Sparkles } from 'lucide-react';
 import { ModelUsageStat } from '@/store/cacheApi';
 import { ChartContainer } from '@/components/charts/ChartContainer';
-import { AXIS_TICK_STYLE, CHART_COLORS, formatModelShortName, GRID_PROPS } from '@/components/charts/chartTheme';
+import {
+  AXIS_TICK_STYLE,
+  CHART_COLORS,
+  formatModelShortName,
+  getChartAnimationProps,
+  GRID_PROPS,
+} from '@/components/charts/chartTheme';
 import { ChartLegend } from '@/components/analytics/ChartLegend';
 import { ChartTooltip } from '@/components/analytics/ChartTooltip';
 
@@ -23,7 +29,7 @@ export interface ModelEfficiencyChartProps {
   isError?: boolean;
 }
 
-export function ModelEfficiencyChart({
+export const ModelEfficiencyChart = memo(function ModelEfficiencyChart({
   modelUsage,
   isLoading = false,
   isError = false,
@@ -110,7 +116,7 @@ export function ModelEfficiencyChart({
             name="Cache Hits"
             stackId="model"
             fill={CHART_COLORS.exactHit}
-            isAnimationActive={false}
+            {...getChartAnimationProps(0)}
           />
           <Bar
             dataKey="misses"
@@ -118,10 +124,10 @@ export function ModelEfficiencyChart({
             stackId="model"
             fill={CHART_COLORS.miss}
             radius={[4, 4, 0, 0]}
-            isAnimationActive={false}
+            {...getChartAnimationProps(100)}
           />
         </BarChart>
       </ResponsiveContainer>
     </ChartContainer>
   );
-}
+});

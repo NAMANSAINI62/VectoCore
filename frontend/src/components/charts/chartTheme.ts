@@ -24,6 +24,25 @@ export const GRID_PROPS = {
   vertical: false,
 } as const;
 
+const CHART_ANIMATION_PROPS = {
+  isAnimationActive: true,
+  animationDuration: 950,
+  animationEasing: 'cubic-bezier(0.22,1,0.36,1)',
+} as const;
+
+export function getChartAnimationProps(animationBegin = 0) {
+  return {
+    ...CHART_ANIMATION_PROPS,
+    animationBegin,
+  };
+}
+
+export const ACTIVE_DOT_STYLE = {
+  r: 5,
+  strokeWidth: 2,
+  stroke: 'var(--card)',
+} as const;
+
 export function formatCompactNumber(value: number): string {
   if (!Number.isFinite(value)) return '0';
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;

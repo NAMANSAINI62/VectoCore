@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import {
   Bar,
   BarChart,
@@ -17,6 +17,7 @@ import {
   AXIS_TICK_STYLE,
   CHART_COLORS,
   formatLatencyMs,
+  getChartAnimationProps,
   GRID_PROPS,
 } from '@/components/charts/chartTheme';
 import { ChartLegend } from '@/components/analytics/ChartLegend';
@@ -33,7 +34,7 @@ export interface LatencyComparisonChartProps {
   isError?: boolean;
 }
 
-export function LatencyComparisonChart({
+export const LatencyComparisonChart = memo(function LatencyComparisonChart({
   avgExactHitLatencyMs,
   avgSemanticHitLatencyMs,
   avgHitLatencyMs,
@@ -135,7 +136,7 @@ export function LatencyComparisonChart({
               />
             )}
           />
-          <Bar dataKey="latencyMs" name="Latency (ms)" radius={[6, 6, 0, 0]} barSize={44} isAnimationActive={false}>
+          <Bar dataKey="latencyMs" name="Latency (ms)" radius={[6, 6, 0, 0]} barSize={44} {...getChartAnimationProps()}>
             {data.map((entry) => (
               <Cell key={entry.stage} fill={entry.color} />
             ))}
@@ -144,4 +145,4 @@ export function LatencyComparisonChart({
       </ResponsiveContainer>
     </ChartContainer>
   );
-}
+});

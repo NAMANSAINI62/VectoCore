@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import {
   Bar,
   BarChart,
@@ -17,6 +17,7 @@ import {
   AXIS_TICK_STYLE,
   CHART_COLORS,
   formatShortDate,
+  getChartAnimationProps,
   GRID_PROPS,
 } from '@/components/charts/chartTheme';
 import { ChartLegend } from '@/components/analytics/ChartLegend';
@@ -28,7 +29,7 @@ export interface CacheTrendChartProps {
   isError?: boolean;
 }
 
-export function CacheTrendChart({
+export const CacheTrendChart = memo(function CacheTrendChart({
   trends,
   isLoading = false,
   isError = false,
@@ -56,6 +57,20 @@ export function CacheTrendChart({
     >
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={trends} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+          <defs>
+            <linearGradient id="trendExactGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={CHART_COLORS.exactHit} stopOpacity={1} />
+              <stop offset="100%" stopColor={CHART_COLORS.exactHit} stopOpacity={0.78} />
+            </linearGradient>
+            <linearGradient id="trendSemanticGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={CHART_COLORS.semanticHit} stopOpacity={1} />
+              <stop offset="100%" stopColor={CHART_COLORS.semanticHit} stopOpacity={0.78} />
+            </linearGradient>
+            <linearGradient id="trendMissGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={CHART_COLORS.miss} stopOpacity={1} />
+              <stop offset="100%" stopColor={CHART_COLORS.miss} stopOpacity={0.78} />
+            </linearGradient>
+          </defs>
           <CartesianGrid {...GRID_PROPS} />
           <XAxis
             dataKey="date"
@@ -102,28 +117,28 @@ export function CacheTrendChart({
             dataKey="exact_hits"
             name="Exact Hit"
             stackId="requests"
-            fill={CHART_COLORS.exactHit}
+            fill="url(#trendExactGrad)"
             radius={[0, 0, 0, 0]}
-            isAnimationActive={false}
+            {...getChartAnimationProps(0)}
           />
           <Bar
             dataKey="semantic_hits"
             name="Semantic Hit"
             stackId="requests"
-            fill={CHART_COLORS.semanticHit}
+            fill="url(#trendSemanticGrad)"
             radius={[0, 0, 0, 0]}
-            isAnimationActive={false}
+            {...getChartAnimationProps(100)}
           />
           <Bar
             dataKey="misses"
             name="Cache Miss"
             stackId="requests"
-            fill={CHART_COLORS.miss}
-            radius={[4, 4, 0, 0]}
-            isAnimationActive={false}
+            fill="url(#trendMissGrad)"
+            radius={[5, 5, 0, 0]}
+            {...getChartAnimationProps(200)}
           />
         </BarChart>
       </ResponsiveContainer>
     </ChartContainer>
   );
-}
+});

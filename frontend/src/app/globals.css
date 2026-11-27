@@ -368,13 +368,47 @@ body {
   animation: pin-pop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* Smooth chart reveal on initial mount / tab switch */
+@keyframes chart-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chart-enter {
+  animation: chart-enter 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Lightweight GPU-composited route transition */
+@keyframes page-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-enter {
+  animation: page-enter 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .floating-field__label,
   .strength-bar-fill {
     transition: none;
   }
 
-  .pin-box-pop {
+  .pin-box-pop,
+  .chart-enter,
+  .page-enter {
     animation: none;
   }
 }

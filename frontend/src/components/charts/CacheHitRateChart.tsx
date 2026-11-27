@@ -1,10 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { memo, useMemo } from 'react';
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -14,9 +14,11 @@ import { TrendingUp } from 'lucide-react';
 import { DailyTrendPoint } from '@/store/cacheApi';
 import { ChartContainer } from '@/components/charts/ChartContainer';
 import {
+  ACTIVE_DOT_STYLE,
   AXIS_TICK_STYLE,
   CHART_COLORS,
   formatShortDate,
+  getChartAnimationProps,
   GRID_PROPS,
 } from '@/components/charts/chartTheme';
 import { ChartLegend } from '@/components/analytics/ChartLegend';
@@ -29,21 +31,25 @@ export interface CacheHitRateChartProps {
   isError?: boolean;
 }
 
-export function CacheHitRateChart({
+export const CacheHitRateChart = memo(function CacheHitRateChart({
   trends,
   overallHitRatePct,
   isLoading = false,
   isError = false,
 }: CacheHitRateChartProps) {
-  const chartData = trends.map((d) => ({
-    ...d,
-    computedHitRate:
-      d.hit_rate_pct !== undefined
-        ? d.hit_rate_pct
-        : d.requests > 0
-          ? Number(((d.hits / d.requests) * 100).toFixed(1))
-          : 0,
-  }));
+  const chartData = useMemo(
+    () =>
+      trends.map((d) => ({
+        ...d,
+        computedHitRate:
+          d.hit_rate_pct !== undefined
+            ? d.hit_rate_pct
+            : d.requests > 0
+              ? Number(((d.hits / d.requests) * 100).toFixed(1))
+              : 0,
+      })),
+    [trends]
+  );
 
   return (
     <ChartContainer
@@ -75,7 +81,13 @@ export function CacheHitRateChart({
       }
     >
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+          <defs>
+            <linearGradient id="hitRateAreaGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={CHART_COLORS.exactHit} stopOpacity={0.32} />
+              <stop offset="95%" stopColor={CHART_COLORS.exactHit} stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
           <CartesianGrid {...GRID_PROPS} />
           <XAxis
             dataKey="date"
@@ -113,17 +125,19 @@ export function CacheHitRateChart({
               />
             )}
           />
-          <Line
+          <Area
             type="monotone"
             dataKey="computedHitRate"
             name="Hit Rate (%)"
             stroke={CHART_COLORS.exactHit}
+            fill="url(#hitRateAreaGrad)"
             strokeWidth={2.5}
-            dot={{ r: 3.5 }}
-            isAnimationActive={false}
+            dot={{ r: 3, fill: CHART_COLORS.exactHit }}
+            activeDot={ACTIVE_DOT_STYLE}
+            {...getChartAnimationProps()}
           />
-        </LineChart>
+        </AreaChart>
       </ResponsiveContainer>
     </ChartContainer>
   );
-}
+});

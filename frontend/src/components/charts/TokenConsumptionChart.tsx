@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import {
   Bar,
   BarChart,
@@ -18,6 +18,7 @@ import {
   CHART_COLORS,
   formatCompactNumber,
   formatModelShortName,
+  getChartAnimationProps,
   GRID_PROPS,
 } from '@/components/charts/chartTheme';
 import { ChartLegend } from '@/components/analytics/ChartLegend';
@@ -29,7 +30,7 @@ export interface TokenConsumptionChartProps {
   isError?: boolean;
 }
 
-export function TokenConsumptionChart({
+export const TokenConsumptionChart = memo(function TokenConsumptionChart({
   modelUsage,
   isLoading = false,
   isError = false,
@@ -103,24 +104,24 @@ export function TokenConsumptionChart({
             name="Input Tokens"
             fill={CHART_COLORS.input}
             radius={[4, 4, 0, 0]}
-            isAnimationActive={false}
+            {...getChartAnimationProps(0)}
           />
           <Bar
             dataKey="output_tokens"
             name="Output Tokens"
             fill={CHART_COLORS.output}
             radius={[4, 4, 0, 0]}
-            isAnimationActive={false}
+            {...getChartAnimationProps(80)}
           />
           <Bar
             dataKey="tokens_saved"
             name="Tokens Saved"
             fill={CHART_COLORS.exactHit}
             radius={[4, 4, 0, 0]}
-            isAnimationActive={false}
+            {...getChartAnimationProps(160)}
           />
         </BarChart>
       </ResponsiveContainer>
     </ChartContainer>
   );
-}
+});

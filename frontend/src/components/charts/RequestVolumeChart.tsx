@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -14,9 +14,11 @@ import { TrendingUp } from 'lucide-react';
 import { DailyTrendPoint } from '@/store/cacheApi';
 import { ChartContainer } from '@/components/charts/ChartContainer';
 import {
+  ACTIVE_DOT_STYLE,
   AXIS_TICK_STYLE,
   CHART_COLORS,
   formatShortDate,
+  getChartAnimationProps,
   GRID_PROPS,
 } from '@/components/charts/chartTheme';
 import { ChartLegend } from '@/components/analytics/ChartLegend';
@@ -28,7 +30,7 @@ export interface RequestVolumeChartProps {
   isError?: boolean;
 }
 
-export function RequestVolumeChart({
+export const RequestVolumeChart = memo(function RequestVolumeChart({
   trends,
   isLoading = false,
   isError = false,
@@ -89,7 +91,8 @@ export function RequestVolumeChart({
             stroke={CHART_COLORS.input}
             strokeWidth={2.5}
             dot={{ r: 3 }}
-            isAnimationActive={false}
+            activeDot={ACTIVE_DOT_STYLE}
+            {...getChartAnimationProps(0)}
           />
           <Line
             type="monotone"
@@ -98,7 +101,8 @@ export function RequestVolumeChart({
             stroke={CHART_COLORS.exactHit}
             strokeWidth={2}
             dot={{ r: 3 }}
-            isAnimationActive={false}
+            activeDot={ACTIVE_DOT_STYLE}
+            {...getChartAnimationProps(110)}
           />
           <Line
             type="monotone"
@@ -107,10 +111,11 @@ export function RequestVolumeChart({
             stroke={CHART_COLORS.miss}
             strokeWidth={2}
             dot={{ r: 3 }}
-            isAnimationActive={false}
+            activeDot={ACTIVE_DOT_STYLE}
+            {...getChartAnimationProps(220)}
           />
         </LineChart>
       </ResponsiveContainer>
     </ChartContainer>
   );
-}
+});

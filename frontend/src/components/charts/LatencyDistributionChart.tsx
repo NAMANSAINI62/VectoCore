@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import {
   Bar,
   BarChart,
@@ -13,7 +13,7 @@ import {
 import { Activity } from 'lucide-react';
 import { LatencyBucketStat } from '@/store/cacheApi';
 import { ChartContainer } from '@/components/charts/ChartContainer';
-import { AXIS_TICK_STYLE, CHART_COLORS, GRID_PROPS } from '@/components/charts/chartTheme';
+import { AXIS_TICK_STYLE, CHART_COLORS, getChartAnimationProps, GRID_PROPS } from '@/components/charts/chartTheme';
 import { ChartLegend } from '@/components/analytics/ChartLegend';
 import { ChartTooltip } from '@/components/analytics/ChartTooltip';
 
@@ -23,7 +23,7 @@ export interface LatencyDistributionChartProps {
   isError?: boolean;
 }
 
-export function LatencyDistributionChart({
+export const LatencyDistributionChart = memo(function LatencyDistributionChart({
   buckets,
   isLoading = false,
   isError = false,
@@ -97,14 +97,14 @@ export function LatencyDistributionChart({
             name="Exact Hit"
             stackId="lat"
             fill={CHART_COLORS.exactHit}
-            isAnimationActive={false}
+            {...getChartAnimationProps(0)}
           />
           <Bar
             dataKey="semantic_hits"
             name="Semantic Hit"
             stackId="lat"
             fill={CHART_COLORS.semanticHit}
-            isAnimationActive={false}
+            {...getChartAnimationProps(90)}
           />
           <Bar
             dataKey="misses"
@@ -112,10 +112,10 @@ export function LatencyDistributionChart({
             stackId="lat"
             fill={CHART_COLORS.miss}
             radius={[4, 4, 0, 0]}
-            isAnimationActive={false}
+            {...getChartAnimationProps(180)}
           />
         </BarChart>
       </ResponsiveContainer>
     </ChartContainer>
   );
-}
+});

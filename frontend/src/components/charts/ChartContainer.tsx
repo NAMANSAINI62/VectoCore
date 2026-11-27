@@ -72,7 +72,7 @@ export function ChartContainer({
       ) : isEmpty ? (
         <EmptyChartState title={emptyTitle} message={emptyMessage} heightClass={heightClass} />
       ) : (
-        <div className={`w-full min-w-0 ${heightClass}`}>{children}</div>
+        <div className={`w-full min-w-0 chart-enter ${heightClass}`}>{children}</div>
       )}
 
       {footer ? (

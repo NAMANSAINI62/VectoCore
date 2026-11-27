@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import {
   Area,
   AreaChart,
@@ -14,10 +14,12 @@ import { Zap } from 'lucide-react';
 import { DailyTrendPoint } from '@/store/cacheApi';
 import { ChartContainer } from '@/components/charts/ChartContainer';
 import {
+  ACTIVE_DOT_STYLE,
   AXIS_TICK_STYLE,
   CHART_COLORS,
   formatCompactNumber,
   formatShortDate,
+  getChartAnimationProps,
   GRID_PROPS,
 } from '@/components/charts/chartTheme';
 import { ChartLegend } from '@/components/analytics/ChartLegend';
@@ -31,7 +33,7 @@ export interface TokenSavingsChartProps {
   isError?: boolean;
 }
 
-export function TokenSavingsChart({
+export const TokenSavingsChart = memo(function TokenSavingsChart({
   trends,
   inputTokensSavedTotal,
   outputTokensSavedTotal,
@@ -70,6 +72,16 @@ export function TokenSavingsChart({
     >
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={trends} margin={{ top: 8, right: 12, left: -8, bottom: 0 }}>
+          <defs>
+            <linearGradient id="tokenSavInputGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={CHART_COLORS.input} stopOpacity={0.42} />
+              <stop offset="95%" stopColor={CHART_COLORS.input} stopOpacity={0.04} />
+            </linearGradient>
+            <linearGradient id="tokenSavOutputGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={CHART_COLORS.output} stopOpacity={0.42} />
+              <stop offset="95%" stopColor={CHART_COLORS.output} stopOpacity={0.04} />
+            </linearGradient>
+          </defs>
           <CartesianGrid {...GRID_PROPS} />
           <XAxis
             dataKey="date"
@@ -112,12 +124,11 @@ export function TokenSavingsChart({
             name="Input Tokens Saved"
             stackId="tokens"
             stroke={CHART_COLORS.input}
-            fill={CHART_COLORS.input}
-            fillOpacity={0.35}
+            fill="url(#tokenSavInputGrad)"
             strokeWidth={2}
             dot={{ r: 2.5 }}
-            activeDot={{ r: 4 }}
-            isAnimationActive={false}
+            activeDot={ACTIVE_DOT_STYLE}
+            {...getChartAnimationProps(0)}
           />
           <Area
             type="monotone"
@@ -125,15 +136,14 @@ export function TokenSavingsChart({
             name="Output Tokens Saved"
             stackId="tokens"
             stroke={CHART_COLORS.output}
-            fill={CHART_COLORS.output}
-            fillOpacity={0.35}
+            fill="url(#tokenSavOutputGrad)"
             strokeWidth={2}
             dot={{ r: 2.5 }}
-            activeDot={{ r: 4 }}
-            isAnimationActive={false}
+            activeDot={ACTIVE_DOT_STYLE}
+            {...getChartAnimationProps(120)}
           />
         </AreaChart>
       </ResponsiveContainer>
     </ChartContainer>
   );
-}
+});
