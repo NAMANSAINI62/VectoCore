@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState, useTransition } from 'react';
 import {
   TelemetryItem,
   useGetCacheStatsQuery,
@@ -54,7 +54,10 @@ export default function LogsPage() {
   );
   const [showCharts, setShowCharts] = useState(true);
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [visibleCount, setVisibleCount] = useState(50);
+  const [, startTransition] = useTransition();
   const [selectedLog, setSelectedLog] = useState<TelemetryItem | null>(null);
 
   const { data: inspectedLog, isFetching: inspecting } = useInspectTelemetryItemQuery(
@@ -71,6 +74,12 @@ export default function LogsPage() {
     () => stats?.recent_activity ?? [],
     [stats?.recent_activity]
   );
+  const trends = useMemo(() => stats?.daily_trends ?? [], [stats?.daily_trends]);
+  const latencyBuckets = useMemo(() => stats?.latency_buckets ?? [], [stats?.latency_buckets]);
+
+  useEffect(() => {
+    setVisibleCount(50);
+  }, [deferredSearch, statusFilter]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { all: rawActivity.length };
@@ -81,7 +90,7 @@ export default function LogsPage() {
   }, [rawActivity]);
 
   const logs = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     return rawActivity.filter((item) => {
       if (statusFilter !== 'all' && item.cache_status !== statusFilter) return false;
       if (!q) return true;
@@ -94,7 +103,9 @@ export default function LogsPage() {
         item.model.toLowerCase().includes(q)
       );
     });
-  }, [rawActivity, search, statusFilter]);
+  }, [rawActivity, deferredSearch, statusFilter]);
+
+  const visibleLogs = useMemo(() => logs.slice(0, visibleCount), [logs, visibleCount]);
 
   const summary = useMemo(() => {
     const total = logs.length;
@@ -129,7 +140,7 @@ export default function LogsPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setShowCharts((v) => !v)}
+            onClick={() => startTransition(() => setShowCharts((v) => !v))}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition cursor-pointer"
             style={{
               backgroundColor: 'var(--card)',
@@ -201,8 +212,8 @@ export default function LogsPage() {
       {/* Collapsible Charts */}
       {showCharts && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <RequestVolumeChart trends={stats?.daily_trends ?? []} isLoading={isLoading} isError={isError} />
-          <LatencyDistributionChart buckets={stats?.latency_buckets ?? []} isLoading={isLoading} isError={isError} />
+          <RequestVolumeChart trends={trends} isLoading={isLoading} isError={isError} />
+          <LatencyDistributionChart buckets={latencyBuckets} isLoading={isLoading} isError={isError} />
         </div>
       )}
 
@@ -254,7 +265,7 @@ export default function LogsPage() {
               <button
                 key={opt.id}
                 type="button"
-                onClick={() => setStatusFilter(opt.id)}
+                onClick={() => startTransition(() => setStatusFilter(opt.id))}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer"
                 style={
                   active
@@ -312,7 +323,7 @@ export default function LogsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                {logs.map((item) => {
+                {visibleLogs.map((item) => {
                   const isHit = item.cache_status === 'exact_hit' || item.cache_status === 'semantic_hit';
                   const reqId = item.request_id || `req-${item.id.slice(0, 8)}`;
                   const cacheMs = item.cache_lookup_latency_ms ?? 1;
@@ -406,6 +417,34 @@ export default function LogsPage() {
                 })}
               </tbody>
             </table>
+            {visibleCount < logs.length && (
+              <div
+                className="flex items-center justify-between border-t px-4 py-2.5 text-xs"
+                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--card)' }}
+              >
+                <span style={{ color: 'var(--muted-foreground)' }}>
+                  Showing {visibleLogs.length} of {logs.length} logs
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount((prev) => prev + 50)}
+                    className="rounded-lg border px-2.5 py-1 font-medium transition hover:bg-[var(--muted)] cursor-pointer"
+                    style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
+                  >
+                    Load 50 more
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount(logs.length)}
+                    className="rounded-lg border px-2.5 py-1 font-medium transition hover:bg-[var(--muted)] cursor-pointer"
+                    style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
+                  >
+                    Show all ({logs.length})
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

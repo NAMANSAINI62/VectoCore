@@ -198,10 +198,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
       {/* Main Content Canvas */}
       <main
+        key={pathname}
         className={
           isPlayground
-            ? 'flex min-h-0 flex-1 flex-col overflow-hidden p-0'
-            : 'mx-auto w-full max-w-[1440px] flex-1 px-3 pt-4 pb-20 sm:px-6 sm:pt-6 sm:pb-24'
+            ? 'flex min-h-0 flex-1 flex-col overflow-hidden p-0 page-enter'
+            : 'mx-auto w-full max-w-[1440px] flex-1 px-3 pt-4 pb-20 sm:px-6 sm:pt-6 sm:pb-24 page-enter'
         }
       >
         {children}

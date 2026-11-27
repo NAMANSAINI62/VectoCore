@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useTransition } from 'react';
 import {
   useGetCacheStatsQuery,
   useGetModelsQuery,
@@ -38,6 +38,7 @@ function formatCompact(n: number): string {
 export default function AnalyticsPage() {
   const { selectedDays, appliedCustom } = useAppSelector((state) => state.dateRange);
   const [activeTab, setActiveTab] = useState<AnalyticsTab>('overview');
+  const [isTabPending, startTabTransition] = useTransition();
 
   const queryParams = useMemo(
     () => buildDateRangeQueryParams(selectedDays, appliedCustom),
@@ -63,8 +64,11 @@ export default function AnalyticsPage() {
     return raw.filter((m) => activeKeys.has(`${m.provider}:${m.model}`));
   }, [stats?.model_usage, activeModels]);
 
-  const recentActivity: TelemetryItem[] = stats?.recent_activity ?? [];
-  const trends = stats?.daily_trends ?? [];
+  const recentActivity: TelemetryItem[] = useMemo(
+    () => stats?.recent_activity ?? [],
+    [stats?.recent_activity],
+  );
+  const trends = useMemo(() => stats?.daily_trends ?? [], [stats?.daily_trends]);
 
   const tabs: Array<{ id: AnalyticsTab; label: string; icon: React.ReactNode }> = [
     { id: 'overview', label: 'Overview & Trends', icon: <BarChart3 className="w-3.5 h-3.5" /> },
@@ -229,7 +233,7 @@ export default function AnalyticsPage() {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => startTabTransition(() => setActiveTab(tab.id))}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
               style={
                 active
@@ -244,6 +248,7 @@ export default function AnalyticsPage() {
         })}
       </div>
 
+      <div className={`space-y-4 transition-opacity duration-150 ${isTabPending ? 'opacity-75' : 'opacity-100'}`}>
       {/* Overview & Trends */}
       {(activeTab === 'overview' || activeTab === 'all') && (
         <div className="space-y-4">
@@ -424,6 +429,7 @@ export default function AnalyticsPage() {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

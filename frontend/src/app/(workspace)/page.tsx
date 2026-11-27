@@ -25,7 +25,7 @@ export default function OverviewPage() {
     skipPollingIfUnfocused: true,
     refetchOnMountOrArgChange: 15,
   });
-  const trends = stats?.daily_trends ?? [];
+  const trends = useMemo(() => stats?.daily_trends ?? [], [stats?.daily_trends]);
 
   return (
     <div className="space-y-6">

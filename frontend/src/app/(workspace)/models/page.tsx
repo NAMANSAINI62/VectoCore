@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useDeferredValue, useMemo, useState, useTransition } from 'react';
 import {
   ModelUsageStat,
   useGetCacheStatsQuery,
@@ -26,11 +26,13 @@ export default function ModelsPage() {
   const { selectedDays, appliedCustom } = useAppSelector((state) => state.dateRange);
   const [providerFilter, setProviderFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
+  const [, startTransition] = useTransition();
 
   const {
     data: models = [],
     isLoading: modelsLoading,
-  } = useGetModelsQuery(undefined, { refetchOnMountOrArgChange: true });
+  } = useGetModelsQuery();
 
   const queryParams = useMemo(
     () => buildDateRangeQueryParams(selectedDays, appliedCustom),
@@ -109,7 +111,7 @@ export default function ModelsPage() {
   );
 
   const filteredModels = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     return mergedModels.filter((m) => {
       if (providerFilter !== 'all' && m.provider !== providerFilter) return false;
       if (!q) return true;
@@ -119,7 +121,7 @@ export default function ModelsPage() {
         m.provider.toLowerCase().includes(q)
       );
     });
-  }, [mergedModels, providerFilter, search]);
+  }, [mergedModels, providerFilter, deferredSearch]);
 
   const loading = modelsLoading || statsLoading;
 
@@ -311,7 +313,7 @@ export default function ModelsPage() {
               <button
                 key={prov}
                 type="button"
-                onClick={() => setProviderFilter(prov)}
+                onClick={() => startTransition(() => setProviderFilter(prov))}
                 className="px-2.5 py-1 rounded-md text-[11px] font-medium capitalize transition cursor-pointer"
                 style={
                   providerFilter === prov

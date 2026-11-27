@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogPanel } from '@headlessui/react';
 import {
   useGetCacheEntriesQuery,
@@ -29,7 +29,13 @@ import {
 
 export default function CachePage() {
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [language, setLanguage] = useState('');
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
   const [page, setPage] = useState(1);
   const [selectedEntry, setSelectedEntry] = useState<CacheEntry | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<CacheEntry | null>(null);
@@ -49,7 +55,7 @@ export default function CachePage() {
     {
       page,
       pageSize: 15,
-      search: search.trim() || undefined,
+      search: debouncedSearch || undefined,
       language: language || undefined,
     },
     {
